@@ -7,6 +7,6 @@ require (
 	github.com/sirupsen/logrus v1.4.2
 	github.com/synerex/synerex_api v0.0.1
 	github.com/synerex/synerex_nodeapi v0.0.1 // indirect
-	github.com/synerex/synerex_sxutil v0.0.1
+	github.com/synerex/synerex_sxutil v0.0.2
 	google.golang.org/grpc v1.23.1
 )
