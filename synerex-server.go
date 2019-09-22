@@ -3,24 +3,26 @@ package main
 //go:generate protoc -I ../api --go_out=paths=source_relative,plugins=grpc:../api ../api/synerex.proto
 
 import (
-"context"
-"errors"
-"flag"
-"fmt"
-"log"
-"net"
-"path"
-"strings"
-"sync"
-"time"
+	"context"
+	"errors"
 
-"strconv"
+	"flag"
+	"fmt"
+	"log"
+	"net"
+	"path"
+	"strings"
+	"sync"
+	"time"
 
-api "github.com/synerex/synerex_api"
-sxutil "github.com/synerex/synerex_sxutil"
+	"strconv"
 
-"github.com/sirupsen/logrus"
-"google.golang.org/grpc"
+	api "github.com/synerex/synerex_api"
+	pbase "github.com/synerex/synerex_proto"
+	sxutil "github.com/synerex/synerex_sxutil"
+
+	"github.com/sirupsen/logrus"
+	"google.golang.org/grpc"
 )
 
 const MessageChannelBufferSize = 10
@@ -33,16 +35,14 @@ var (
 
 //type sxutil.IDType uint64
 
-const ChannelSizeMAX = 20
-
 type synerexServerInfo struct {
-	demandChans        [ChannelSizeMAX][]chan *api.Demand // create slices for each ChannelType(each slice contains channels)
-	supplyChans        [ChannelSizeMAX][]chan *api.Supply
+	demandChans        [pbase.ChannelTypeMax][]chan *api.Demand // create slices for each ChannelType(each slice contains channels)
+	supplyChans        [pbase.ChannelTypeMax][]chan *api.Supply
 	mbusChans          map[uint64][]chan *api.MbusMsg           // Private Message bus for each provider
 	mbusMap            map[sxutil.IDType]map[uint64]chan *api.MbusMsg  // map from sxutil.IDType to Mbus channel
-	demandMap          [ChannelSizeMAX]map[sxutil.IDType]chan *api.Demand // map from sxutil.IDType to Demand channel
-	supplyMap          [ChannelSizeMAX]map[sxutil.IDType]chan *api.Supply // map from sxutil.IDType to Supply channel
-	waitConfirms       [ChannelSizeMAX]map[sxutil.IDType]chan *api.Target // confirm maps
+	demandMap          [pbase.ChannelTypeMax]map[sxutil.IDType]chan *api.Demand // map from sxutil.IDType to Demand channel
+	supplyMap          [pbase.ChannelTypeMax]map[sxutil.IDType]chan *api.Supply // map from sxutil.IDType to Supply channel
+	waitConfirms       [pbase.ChannelTypeMax]map[sxutil.IDType]chan *api.Target // confirm maps
 	dmu, smu, mmu, wmu sync.RWMutex
 	messageStore       *MessageStore // message store
 }
@@ -457,7 +457,7 @@ func (s *synerexServerInfo) CloseMbus(c context.Context, mb *api.Mbus) (r *api.R
 func newServerInfo() *synerexServerInfo {
 	var ms synerexServerInfo
 	s := &ms
-	for i := 0; i < ChannelSizeMAX; i++ {
+	for i := 0; i < pbase.ChannelTypeMax; i++ {
 		s.demandMap[i] = make(map[sxutil.IDType]chan *api.Demand)
 		s.supplyMap[i] = make(map[sxutil.IDType]chan *api.Supply)
 		s.waitConfirms[i] = make(map[sxutil.IDType]chan *api.Target)
@@ -623,8 +623,7 @@ func prepareGrpcServer(s *synerexServerInfo, opts ...grpc.ServerOption) *grpc.Se
 
 func main() {
 	flag.Parse()
-	//	sxutil.RegisterNodeName(*nodesrv, "SynerexServer", true)
-
+	sxutil.RegisterNodeName(*nodesrv, "SynerexServer", true)
 	//	monitorapi.InitMonitor(*monitor)
 
 	lis, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", *port))
