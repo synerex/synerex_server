@@ -662,8 +662,8 @@ func prepareGrpcServer(s *synerexServerInfo, opts ...grpc.ServerOption) *grpc.Se
 func main() {
 	flag.Parse()
 
-	srvaddr := fmt.Sprintf("%s:%d", servaddr, *port)
-
+	srvaddr := fmt.Sprintf("%s:%d", *servaddr, *port)
+	fmt.Printf("ServerAddress %s\n",srvaddr)
 	sxo := &sxutil.SxServerOpt{
 			ServerAddress: srvaddr,
 			ClusterId: 0,
