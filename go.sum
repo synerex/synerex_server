@@ -45,10 +45,8 @@ github.com/synerex/synerex_nodeapi v0.3.1 h1:8L9QoEx/JR80fYc/3IUewlc1z0gAJO9kp/8
 github.com/synerex/synerex_nodeapi v0.3.1/go.mod h1:UM6Xrtb2oMti3AQ7uNR3bEcS2FHiQqsK2nKb97vZuYs=
 github.com/synerex/synerex_proto v0.1.1 h1:rqo27uW4DKkmstq6bl21F4RaSYYvDpJICDM/i2a4WTQ=
 github.com/synerex/synerex_proto v0.1.1/go.mod h1:YU29N7auJhYQWPPsPqbLlNTZazCuDuYkDJgw2xFsYck=
-github.com/synerex/synerex_sxutil v0.2.1 h1:Ek/HxKxk4lzqkLsbgMErHVn+u8M8nAsGXZXNjr254Ec=
-github.com/synerex/synerex_sxutil v0.2.1/go.mod h1:789Q6u3cPE4SKtl8JtJDkAvaxWNOMkOp0TbuuiV+tsE=
-github.com/synerex/synerex_sxutil v0.2.2 h1:1OvbPo9nAV4Uktx5YNxW4mvM87bl9Pp75maJefQskZs=
-github.com/synerex/synerex_sxutil v0.2.2/go.mod h1:789Q6u3cPE4SKtl8JtJDkAvaxWNOMkOp0TbuuiV+tsE=
+github.com/synerex/synerex_sxutil v0.3.2 h1:/T9NnmEZk0esAUebnK2/oIembHarcLsxRhRtbyz1eNk=
+github.com/synerex/synerex_sxutil v0.3.2/go.mod h1:789Q6u3cPE4SKtl8JtJDkAvaxWNOMkOp0TbuuiV+tsE=
 github.com/x-cray/logrus-prefixed-formatter v0.5.2 h1:00txxvfBM9muc0jiLIEAkAcIMJzfthRT6usrui8uGmg=
 github.com/x-cray/logrus-prefixed-formatter v0.5.2/go.mod h1:2duySbKsL6M18s5GU7VPsoEPHyzalCE06qoARUCeBBE=
 golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2 h1:VklqNMn3ovrHsnt90PveolxSbWFaJdECFbxSq0Mqo2M=
