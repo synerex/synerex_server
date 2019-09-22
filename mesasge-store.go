@@ -62,7 +62,7 @@ func (mst *MessageStore) AddMessage(msgType string, chType int, mid uint64, src 
 	mst.mutex.Lock()
 	if mst.limit[mst.limit_pt] != 0 { // ring buffer, delete last one.
 		delete(mst.store, mst.limit[mst.limit_pt])
-		fmt.Printf("mstore: %4d/%7d ",  mst.limit_pt, mst.count)
+//		fmt.Printf("mstore: %4d/%7d ",  mst.limit_pt, mst.count)
 	}
 	mst.store[mid] = mes
 	mst.count ++

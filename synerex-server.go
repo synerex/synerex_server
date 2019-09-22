@@ -5,10 +5,8 @@ package main
 import (
 	"context"
 	"errors"
-
 	"flag"
 	"fmt"
-	"log"
 	"net"
 	"path"
 	"strings"
@@ -21,7 +19,10 @@ import (
 	pbase "github.com/synerex/synerex_proto"
 	sxutil "github.com/synerex/synerex_sxutil"
 
+	"github.com/rcrowley/go-metrics"
 	"github.com/sirupsen/logrus"
+	logprefix "github.com/x-cray/logrus-prefixed-formatter"
+
 	"google.golang.org/grpc"
 )
 
@@ -29,8 +30,10 @@ const MessageChannelBufferSize = 10
 
 var (
 	port    = flag.Int("port", 10000, "The Synerex Server Listening Port")
+	servaddr= flag.String("servaddr", "127.0.0.1", "Server Address for Other Providers")
 	nodesrv = flag.String("nodesrv", "127.0.0.1:9990", "Node ID Server")
 	monitor = flag.String("monitor", "127.0.0.1:9998", "Monitor Server")
+	log = logrus.New() // for default logging
 )
 
 //type sxutil.IDType uint64
@@ -47,8 +50,23 @@ type synerexServerInfo struct {
 	messageStore       *MessageStore // message store
 }
 
+// for metrics
+var (
+	totalMessages = metrics.NewCounter()
+
+)
+
+
 func init() {
 	sxutil.InitNodeNum(0)
+
+	// for Logrus initialization
+	log.Formatter = new(logprefix.TextFormatter)
+	log.Level = logrus.DebugLevel // TODO: Should we change this by flag?
+
+	// for metrics initialization
+	metrics.Register("total.messages", totalMessages)
+
 }
 
 // Implementation of each Protocol API
@@ -65,7 +83,7 @@ func (s *synerexServerInfo) NotifyDemand(c context.Context, dm *api.Demand) (r *
 		} else {
 			okMsg = fmt.Sprintf("RD MessageDrop %v", dm)
 			okFlag = false
-			log.Printf("RD MessageDrop %v\n", dm)
+			log.Warn("RD MessageDrop %v\n", dm)
 		}
 	}
 	s.dmu.RUnlock()
@@ -74,34 +92,45 @@ func (s *synerexServerInfo) NotifyDemand(c context.Context, dm *api.Demand) (r *
 }
 
 func (s *synerexServerInfo) NotifySupply(c context.Context, sp *api.Supply) (r *api.Response, e error) {
-	fmt.Printf("Notify Supply!!!")
+//	fmt.Printf("Notify Supply!!!")
 	okFlag := true
 	okMsg := ""
 	str := ""
+	ctype := sp.GetChannelType()
+	if ctype == 0 || ctype >= pbase.ChannelTypeMax {
+		log.Error("ChannelType Error! %d",ctype)
+		r = &api.Response{Ok: false, Err: "ChannelType Error"}
+		return r, errors.New("ChannelType Error")
+	}
 	s.smu.RLock()
-	chs := s.supplyChans[sp.GetChannelType()]
+	chs := s.supplyChans[ctype]
 	for i := range chs {
 		ch := chs[i]
 		str = str + fmt.Sprintf("%d ", len(ch))
 		if len(ch) < MessageChannelBufferSize { // run under not blocking state.
 			ch <- sp
 		} else {
-			okMsg = fmt.Sprintf("RS MessageDrop %v", sp)
+			okMsg = fmt.Sprintf("NS MessageDrop %v", sp)
 			okFlag = false
-			log.Printf("RS MessageDrop %v\n", sp)
+			log.Warn("NS MessageDrop %v\n", sp)
 		}
 
 	}
 	s.smu.RUnlock()
-	fmt.Printf("RS: %d, %s:", len(chs), str)
 	r = &api.Response{Ok: okFlag, Err: okMsg}
 	return r, nil
 }
 func (s *synerexServerInfo) ProposeDemand(c context.Context, dm *api.Demand) (r *api.Response, e error) {
 	okFlag := true
 	okMsg := ""
+	ctype := dm.GetChannelType()
+	if ctype == 0 || ctype >= pbase.ChannelTypeMax {
+		log.Error("ChannelType Error! %d",ctype)
+		r = &api.Response{Ok: false, Err: "ChannelType Error"}
+		return r, errors.New("ChannelType Error")
+	}
 	s.dmu.RLock()
-	chs := s.demandChans[dm.GetChannelType()]
+	chs := s.demandChans[ctype]
 	for i := range chs {
 		ch := chs[i]
 		if len(ch) < MessageChannelBufferSize {
@@ -119,8 +148,14 @@ func (s *synerexServerInfo) ProposeDemand(c context.Context, dm *api.Demand) (r 
 func (s *synerexServerInfo) ProposeSupply(c context.Context, sp *api.Supply) (r *api.Response, e error) {
 	okFlag := true
 	okMsg := ""
+	ctype := sp.GetChannelType()
+	if ctype == 0 || ctype >= pbase.ChannelTypeMax {
+		log.Error("ChannelType Error! %d",ctype)
+		r = &api.Response{Ok: false, Err: "ChannelType Error"}
+		return r, errors.New("ChannelType Error")
+	}
 	s.smu.RLock()
-	chs := s.supplyChans[sp.GetChannelType()]
+	chs := s.supplyChans[ctype]
 	for i := range chs {
 		ch := chs[i]
 		if len(ch) < MessageChannelBufferSize {
@@ -138,8 +173,14 @@ func (s *synerexServerInfo) ProposeSupply(c context.Context, sp *api.Supply) (r 
 
 func (s *synerexServerInfo) SelectSupply(c context.Context, tg *api.Target) (r *api.ConfirmResponse, e error) {
 	targetSender := s.messageStore.getSrcId(tg.GetTargetId()) // find source from Id
+	ctype := tg.GetChannelType()
+	if ctype == 0 || ctype >= pbase.ChannelTypeMax {
+		log.Error("ChannelType Error! %d",ctype)
+		r = &api.ConfirmResponse{Ok: false, Err: "ChannelType Error"}
+		return r, errors.New("ChannelType Error")
+	}
 	s.dmu.RLock()
-	ch, ok := s.demandMap[tg.ChannelType][sxutil.IDType(targetSender)]
+	ch, ok := s.demandMap[ctype][sxutil.IDType(targetSender)]
 	s.dmu.RUnlock()
 	if !ok {
 		r = &api.ConfirmResponse{Ok: false, Err: "Can't find demand target from SelectSupply"}
@@ -198,12 +239,9 @@ func (s *synerexServerInfo) SelectSupply(c context.Context, tg *api.Target) (r *
 
 }
 
-func (s *synerexServerInfo) ReserveDemand(c context.Context, tg *api.Target) (r *api.ConfirmResponse, e error) {
-	r = &api.ConfirmResponse{Ok: true, Err: ""}
-	return r, nil
-}
 func (s *synerexServerInfo) SelectDemand(c context.Context, tg *api.Target) (r *api.ConfirmResponse, e error) {
 	// select!
+	// TODO: not yet implemented...
 
 	r = &api.ConfirmResponse{Ok: true, Err: ""}
 	return r, nil
@@ -623,8 +661,22 @@ func prepareGrpcServer(s *synerexServerInfo, opts ...grpc.ServerOption) *grpc.Se
 
 func main() {
 	flag.Parse()
-	sxutil.RegisterNodeName(*nodesrv, "SynerexServer", true)
+
+	srvaddr := fmt.Sprintf("%s:%d", servaddr, *port)
+
+	sxo := &sxutil.SxServerOpt{
+			ServerAddress: srvaddr,
+			ClusterId: 0,
+			AreaId: "Default",
+	}
+
+	channels := []uint32{0,1,2,3,4,5,6,7,8} // current basic types+alpha
+
+	_, rerr := sxutil.RegisterNode(*nodesrv, "SynerexServer",channels, sxo )
 	//	monitorapi.InitMonitor(*monitor)
+	if rerr != nil {
+		log.Fatalln("Can't register synerex server")
+	}
 
 	lis, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", *port))
 
@@ -634,16 +686,15 @@ func main() {
 
 	var opts []grpc.ServerOption
 
-	logger := logrus.New()
 
 	s := newServerInfo()
-	opts = append(opts, grpc.UnaryInterceptor(unaryServerInterceptor(logger, s)))
+	opts = append(opts, grpc.UnaryInterceptor(unaryServerInterceptor(log, s)))
 
 	// for more precise monitoring , we do not use StreamIntercepter.
 	//	opts = append(opts, grpc.StreamInterceptor(streamServerInterceptor(logger)))
 
 	grpcServer := prepareGrpcServer(s, opts...)
-	log.Printf("Start Synergic Exchange Server, connection waiting at port :%d ...", *port)
+	log.Printf("Start Synerex Server, connection waiting at port :%d ...", *port)
 	serr := grpcServer.Serve(lis)
 	log.Printf("Should not arrive here.. server closed. %v", serr)
 
