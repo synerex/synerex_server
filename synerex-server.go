@@ -8,14 +8,16 @@ import (
 	"flag"
 	"fmt"
 	"net"
+	"os"
 	"path"
 	"strings"
 	"sync"
 	"time"
-
+	golog "log"
 	"strconv"
 
 	api "github.com/synerex/synerex_api"
+	nodeapi "github.com/synerex/synerex_nodeapi"
 	pbase "github.com/synerex/synerex_proto"
 	sxutil "github.com/synerex/synerex_sxutil"
 
@@ -32,8 +34,8 @@ var (
 	port    = flag.Int("port", 10000, "The Synerex Server Listening Port")
 	servaddr= flag.String("servaddr", "127.0.0.1", "Server Address for Other Providers")
 	nodesrv = flag.String("nodesrv", "127.0.0.1:9990", "Node ID Server")
-	monitor = flag.String("monitor", "127.0.0.1:9998", "Monitor Server")
 	log = logrus.New() // for default logging
+	server_id uint64
 )
 
 //type sxutil.IDType uint64
@@ -46,13 +48,16 @@ type synerexServerInfo struct {
 	demandMap          [pbase.ChannelTypeMax]map[sxutil.IDType]chan *api.Demand // map from sxutil.IDType to Demand channel
 	supplyMap          [pbase.ChannelTypeMax]map[sxutil.IDType]chan *api.Supply // map from sxutil.IDType to Supply channel
 	waitConfirms       [pbase.ChannelTypeMax]map[sxutil.IDType]chan *api.Target // confirm maps
-	dmu, smu, mmu, wmu sync.RWMutex
+	gatewayMap			map[sxutil.IDType]chan *api.GatewayMsg // for gateway. (//TODO: should use channels)
+	dmu, smu, mmu, wmu, gmu sync.RWMutex
 	messageStore       *MessageStore // message store
 }
 
 // for metrics
 var (
 	totalMessages = metrics.NewCounter()
+	receiveMessages = metrics.NewCounter()
+	sendMessages = metrics.NewCounter()
 
 )
 
@@ -65,108 +70,131 @@ func init() {
 	log.Level = logrus.DebugLevel // TODO: Should we change this by flag?
 
 	// for metrics initialization
-	metrics.Register("total.messages", totalMessages)
+	metrics.Register("messages.total", totalMessages)
+	metrics.Register("messages.receive", receiveMessages)
+	metrics.Register("messages.send", sendMessages)
+
+	go metrics.Log(metrics.DefaultRegistry, 5 * time.Second, golog.New(os.Stderr, "metrics: ", golog.Lmicroseconds))
 
 }
 
-// Implementation of each Protocol API
-func (s *synerexServerInfo) NotifyDemand(c context.Context, dm *api.Demand) (r *api.Response, e error) {
-	// send demand for desired channels
-	okFlag := true
-	okMsg := ""
+func sendDemand(s *synerexServerInfo,dm *api.Demand) (okFlag bool,okMsg string ) {
+	okFlag = true
+	okMsg = ""
+	totalMessages.Inc(1)
+	receiveMessages.Inc(1)
 	s.dmu.RLock()
 	chs := s.demandChans[dm.GetChannelType()]
 	for i := range chs {
 		ch := chs[i]
-		if len(ch) < MessageChannelBufferSize {
+		if len(ch) < MessageChannelBufferSize { // performance trouble?
+			totalMessages.Inc(1)
+			sendMessages.Inc(1)
 			ch <- dm
 		} else {
-			okMsg = fmt.Sprintf("RD MessageDrop %v", dm)
 			okFlag = false
+			okMsg = fmt.Sprintf("RD MessageDrop %v", dm)
 			log.Warn("RD MessageDrop %v\n", dm)
 		}
 	}
 	s.dmu.RUnlock()
+	if len(s.gatewayMap) > 0 {
+		gm := &api.GatewayMsg{
+			SrcSynerexId: server_id,
+			MsgType: api.MsgType_DEMAND,
+			MsgOneof: &api.GatewayMsg_Demand{Demand:dm},
+		}
+		s.gmu.RLock()
+		for _, gch := range s.gatewayMap { // TODO: may performance check!
+			totalMessages.Inc(1)
+			sendMessages.Inc(1)
+			gch <- gm
+		}
+		s.gmu.RUnlock()
+	}
+
+	return okFlag, okMsg
+}
+
+
+// Implementation of each Protocol API
+func (s *synerexServerInfo) NotifyDemand(c context.Context, dm *api.Demand) (r *api.Response, e error) {
+	// send demand for desired channels
+	okFlag, okMsg := sendDemand(s,dm)
 	r = &api.Response{Ok: okFlag, Err: okMsg}
 	return r, nil
 }
 
+
+func sendSupply(s *synerexServerInfo, sp *api.Supply)(okFlag bool,okMsg string ){
+	s.smu.RLock()
+	totalMessages.Inc(1)
+	receiveMessages.Inc(1)
+	chs := s.supplyChans[sp.GetChannelType()]
+	for i := range chs {
+		ch := chs[i]
+		if len(ch) < MessageChannelBufferSize { // run under not blocking state.
+			totalMessages.Inc(1)
+			sendMessages.Inc(1)
+			ch <- sp
+		} else {
+			okMsg = fmt.Sprintf("sendSupply MessageDrop %v", sp)
+			okFlag = false
+			log.Warn("sendSupply MessageDrop %v\n", sp)
+		}
+	}
+	s.smu.RUnlock()
+	if len(s.gatewayMap) > 0 {
+		gm := &api.GatewayMsg{
+			SrcSynerexId: server_id,
+			MsgType: api.MsgType_SUPPLY,
+			MsgOneof: &api.GatewayMsg_Supply{Supply:sp},
+		}
+		s.gmu.RLock()
+		for _, gch := range s.gatewayMap { // TODO: may performance check!
+			totalMessages.Inc(1)
+			sendMessages.Inc(1)
+			gch <- gm
+		}
+		s.gmu.RUnlock()
+	}
+	return okFlag, okMsg
+
+}
+
 func (s *synerexServerInfo) NotifySupply(c context.Context, sp *api.Supply) (r *api.Response, e error) {
 //	fmt.Printf("Notify Supply!!!")
-	okFlag := true
-	okMsg := ""
-	str := ""
 	ctype := sp.GetChannelType()
 	if ctype == 0 || ctype >= pbase.ChannelTypeMax {
 		log.Error("ChannelType Error! %d",ctype)
 		r = &api.Response{Ok: false, Err: "ChannelType Error"}
 		return r, errors.New("ChannelType Error")
 	}
-	s.smu.RLock()
-	chs := s.supplyChans[ctype]
-	for i := range chs {
-		ch := chs[i]
-		str = str + fmt.Sprintf("%d ", len(ch))
-		if len(ch) < MessageChannelBufferSize { // run under not blocking state.
-			ch <- sp
-		} else {
-			okMsg = fmt.Sprintf("NS MessageDrop %v", sp)
-			okFlag = false
-			log.Warn("NS MessageDrop %v\n", sp)
-		}
-
-	}
-	s.smu.RUnlock()
+	okFlag , okMsg := sendSupply(s, sp)
 	r = &api.Response{Ok: okFlag, Err: okMsg}
 	return r, nil
 }
+
 func (s *synerexServerInfo) ProposeDemand(c context.Context, dm *api.Demand) (r *api.Response, e error) {
-	okFlag := true
-	okMsg := ""
 	ctype := dm.GetChannelType()
 	if ctype == 0 || ctype >= pbase.ChannelTypeMax {
 		log.Error("ChannelType Error! %d",ctype)
 		r = &api.Response{Ok: false, Err: "ChannelType Error"}
 		return r, errors.New("ChannelType Error")
 	}
-	s.dmu.RLock()
-	chs := s.demandChans[ctype]
-	for i := range chs {
-		ch := chs[i]
-		if len(ch) < MessageChannelBufferSize {
-			ch <- dm
-		} else {
-			okMsg = fmt.Sprintf("PD MessageDrop %v", dm)
-			okFlag = false
-			log.Printf("PD MessageDrop %v\n", dm)
-		}
-	}
-	s.dmu.RUnlock()
+
+	okFlag , okMsg := sendDemand(s, dm)
 	r = &api.Response{Ok: okFlag, Err: okMsg}
 	return r, nil
 }
 func (s *synerexServerInfo) ProposeSupply(c context.Context, sp *api.Supply) (r *api.Response, e error) {
-	okFlag := true
-	okMsg := ""
 	ctype := sp.GetChannelType()
 	if ctype == 0 || ctype >= pbase.ChannelTypeMax {
 		log.Error("ChannelType Error! %d",ctype)
 		r = &api.Response{Ok: false, Err: "ChannelType Error"}
 		return r, errors.New("ChannelType Error")
 	}
-	s.smu.RLock()
-	chs := s.supplyChans[ctype]
-	for i := range chs {
-		ch := chs[i]
-		if len(ch) < MessageChannelBufferSize {
-			ch <- sp
-		} else {
-			okMsg = fmt.Sprintf("PS MessageDrop %v", sp)
-			okFlag = false
-			log.Printf("PS MessageDrop %v\n", sp)
-		}
-	}
-	s.smu.RUnlock()
+	okFlag , okMsg := sendSupply(s, sp)
 	r = &api.Response{Ok: okFlag, Err: okMsg}
 	return r, nil
 }
@@ -183,15 +211,21 @@ func (s *synerexServerInfo) SelectSupply(c context.Context, tg *api.Target) (r *
 	ch, ok := s.demandMap[ctype][sxutil.IDType(targetSender)]
 	s.dmu.RUnlock()
 	if !ok {
-		r = &api.ConfirmResponse{Ok: false, Err: "Can't find demand target from SelectSupply"}
-		log.Printf("Can't find SelectSupply target ID %d, src %d", tg.GetTargetId(), targetSender)
-		e = errors.New("Cant find channel in SelectSupply")
-		return
+		//TODO: there might be packet through gateway...
+		if len(s.gatewayMap) == 0 {
+			r = &api.ConfirmResponse{Ok: false, Err: "Can't find demand target from SelectSupply"}
+			log.Printf("Can't find SelectSupply target ID %d, src %d", tg.GetTargetId(), targetSender)
+			e = errors.New("Cant find channel in SelectSupply")
+			return
+		}else{
+			// TODO: implement select for gateway!
+			return
+		}
 	}
 	id := sxutil.GenerateIntID()
 	//	id := uint64(node.Generate())
 	dm := &api.Demand{
-		Id:          id, // generate ID from market server
+		Id:          id, // generate ID from synerex server
 		SenderId:    tg.SenderId,
 		TargetId:    tg.TargetId,
 		ChannelType: tg.ChannelType,
@@ -228,7 +262,7 @@ func (s *synerexServerInfo) SelectSupply(c context.Context, tg *api.Target) (r *
 			}
 		}
 
-	case <-time.After(30 * time.Second): // timeout!
+	case <-time.After(30 * time.Second): // timeout! // todo: reconsider expiration time.
 		//		args := idToNode(tg.SenderId) + "->" + idToNode(tg.TargetId)
 		//		go monitorapi.SendMessage("notConfirm", int(tg.Type), dm.Id, tg.SenderId, tg.TargetId, tg.TargetId, args)
 		r = &api.ConfirmResponse{Ok: false, Err: "waitConfirm Timeout!"}
@@ -492,6 +526,75 @@ func (s *synerexServerInfo) CloseMbus(c context.Context, mb *api.Mbus) (r *api.R
 	return r, nil
 }
 
+func gatewayServerFunc(ch chan *api.GatewayMsg, ssgs api.Synerex_SubscribeGatewayServer) error {
+	for {
+		select {
+		case sp := <-ch:
+			err := ssgs.Send(sp)
+			if err != nil {
+				return err
+			}
+		}
+	}
+}
+// for Gateway subscribe
+func (s *synerexServerInfo) SubscribeGateway(gi *api.GatewayInfo, ssgs api.Synerex_SubscribeGatewayServer) error{
+	log.Printf("Subscribe Gateway %v\n", gi)
+	idt := sxutil.IDType(gi.GetClientId())
+//	tp := gi.GetChannels() // not using channels:
+	s.gmu.RLock()
+	_, ok := s.gatewayMap[idt]
+	s.gmu.RUnlock()
+	if ok { // check the availability of duplicated gateway client ID
+		return errors.New(fmt.Sprintf("duplicated SubscribeGateway for ClientID %v", idt))
+	}
+
+	subCh := make(chan *api.GatewayMsg, MessageChannelBufferSize)
+
+	s.gmu.Lock()
+	s.gatewayMap[idt] = subCh // mapping from clientID to channel
+	s.gmu.Unlock()
+	err := gatewayServerFunc(subCh, ssgs)
+	// this supply stream may closed. so take care.
+	s.gmu.Lock()
+	delete(s.gatewayMap, idt) // remove map from idt
+	log.Printf("Remove Gateway Client %v", idt)
+	s.gmu.Unlock()
+	return err
+}
+
+// for Gateway Forward
+func (s *synerexServerInfo) ForwardToGateway(ctx context.Context, gm *api.GatewayMsg) (*api.Response, error){
+// need to extract each message and then send them..
+	// send demand for desired channels
+	okFlag := true
+	okMsg := ""
+	msgType := gm.GetMsgType()
+	switch(msgType){
+	case api.MsgType_DEMAND:
+		dm := gm.GetDemand()
+		okFlag, okMsg = sendDemand(s, dm)
+	case api.MsgType_SUPPLY:
+		sp := gm.GetSupply()
+		okFlag, okMsg = sendSupply(s,sp)
+		/*
+	case api.MsgType_TARGET:
+		tg := gm.GetTarget()
+		okFlag, okMsg = sendTarget(s, tg)
+	case api.MsgType_MBUS:
+		mb := gm.GetMbus()
+		okFlag, okMsg = sendMbus(s,mb)
+	case api.MsgType_MBUSMSG:
+		mbm := gm.GetMbusMsg()
+		okFlag, okMsg = sendMbusMsg(s,mbm)
+
+		 */
+	}
+	r := &api.Response{Ok: okFlag, Err: okMsg}
+	return r, nil
+}
+
+
 func newServerInfo() *synerexServerInfo {
 	var ms synerexServerInfo
 	s := &ms
@@ -503,6 +606,7 @@ func newServerInfo() *synerexServerInfo {
 	s.mbusChans = make(map[uint64][]chan *api.MbusMsg)
 	s.mbusMap = make(map[sxutil.IDType]map[uint64]chan *api.MbusMsg)
 	s.messageStore = CreateLocalMessageStore()
+	s.gatewayMap = make(map[sxutil.IDType]chan *api.GatewayMsg)
 
 	return s
 }
@@ -653,9 +757,9 @@ func streamServerInterceptor(logger *logrus.Logger) grpc.StreamServerInterceptor
 	}
 }
 
-func prepareGrpcServer(s *synerexServerInfo, opts ...grpc.ServerOption) *grpc.Server {
+func prepareGrpcServer(ssi *synerexServerInfo, opts ...grpc.ServerOption) *grpc.Server {
 	gcServer := grpc.NewServer(opts...)
-	api.RegisterSynerexServer(gcServer, s)
+	api.RegisterSynerexServer(gcServer, ssi)
 	return gcServer
 }
 
@@ -665,9 +769,10 @@ func main() {
 	sxutil.RegisterDeferFunction(sxutil.UnRegisterNode)
 
 	srvaddr := fmt.Sprintf("%s:%d", *servaddr, *port)
-	fmt.Printf("ServerAddress %s\n",srvaddr)
+	fmt.Printf("ServerInfo %s\n",srvaddr)
 	sxo := &sxutil.SxServerOpt{
-			ServerAddress: srvaddr,
+			ServerInfo: srvaddr,
+			NodeType: nodeapi.NodeType_SERVER,
 			ClusterId: 0,
 			AreaId: "Default",
 	}
@@ -679,6 +784,7 @@ func main() {
 	if rerr != nil {
 		log.Fatalln("Can't register synerex server")
 	}
+	server_id = sxutil.GenerateIntID() // now obtain unique ID using node_id
 
 	lis, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", *port))
 
