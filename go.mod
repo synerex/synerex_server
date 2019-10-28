@@ -14,7 +14,7 @@ require (
 	github.com/sirupsen/logrus v1.4.2
 	github.com/stretchr/testify v1.4.0 // indirect
 	github.com/synerex/synerex_api v0.2.1
-	github.com/synerex/synerex_nodeapi v0.4.3
+	github.com/synerex/synerex_nodeapi v0.4.5
 	github.com/synerex/synerex_proto v0.1.1
 	github.com/synerex/synerex_sxutil v0.3.5
 	github.com/x-cray/logrus-prefixed-formatter v0.5.2
