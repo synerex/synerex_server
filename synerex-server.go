@@ -28,7 +28,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-const MessageChannelBufferSize = 10
+const MessageChannelBufferSize = 100
 
 var (
 	port      = flag.Int("port", 10000, "The Synerex Server Listening Port")
@@ -109,8 +109,8 @@ func sendDemand(s *synerexServerInfo, dm *api.Demand) (okFlag bool, okMsg string
 			ch <- dm
 		} else {
 			okFlag = false
-			okMsg = fmt.Sprintf("RD MessageDrop %v", dm)
-			log.Warn("RD MessageDrop %v\n", dm)
+			okMsg = fmt.Sprintf("SendDemand MessageDrop %v", dm)
+			log.Warn(okMsg)
 		}
 	}
 	s.dmu.RUnlock()
@@ -152,9 +152,9 @@ func sendSupply(s *synerexServerInfo, sp *api.Supply) (okFlag bool, okMsg string
 			sendMessages.Inc(1)
 			ch <- sp
 		} else {
-			okMsg = fmt.Sprintf("sendSupply MessageDrop %v", sp)
+			okMsg = fmt.Sprintf("SendSupply MessageDrop %v", sp)
 			okFlag = false
-			log.Warn("sendSupply MessageDrop %v\n", sp)
+			log.Warn(okMsg)
 		}
 	}
 	s.smu.RUnlock()
@@ -509,7 +509,7 @@ func (s *synerexServerInfo) SendMsg(c context.Context, msg *api.MbusMsg) (r *api
 		} else {
 			okMsg = fmt.Sprintf("MBus MessageDrop %v", msg)
 			okFlag = false
-			log.Printf("Mbus MessageDrop %v\n", msg)
+			log.Warn(okMsg)
 		}
 	}
 	s.mmu.RUnlock()
@@ -532,7 +532,7 @@ func (s *synerexServerInfo) CloseMbus(c context.Context, mb *api.Mbus) (r *api.R
 		} else {
 			okMsg = fmt.Sprintf("MBusClose MessageDrop %v", cmsg)
 			okFlag = false
-			log.Printf("MBusClose MessageDrop %v\n", cmsg)
+			log.Warn(okMsg)
 		}
 	}
 	s.mmu.RUnlock()
