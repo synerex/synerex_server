@@ -95,7 +95,7 @@ func init() {
 
 }
 
-func sendDemand(s *synerexServerInfo, dm *api.Demand) (okFlag bool, okMsg string) {
+func sendDemand(s *synerexServerInfo, dm *api.Demand, isGateway bool) (okFlag bool, okMsg string) {
 	okFlag = true
 	okMsg = ""
 	totalMessages.Inc(1)
@@ -115,7 +115,7 @@ func sendDemand(s *synerexServerInfo, dm *api.Demand) (okFlag bool, okMsg string
 		}
 	}
 	s.dmu.RUnlock()
-	if len(s.gatewayMap) > 0 {
+	if len(s.gatewayMap) > 0 && !isGateway {
 		gm := &api.GatewayMsg{
 			SrcSynerexId: server_id,
 			MsgType:      api.MsgType_DEMAND,
@@ -136,12 +136,12 @@ func sendDemand(s *synerexServerInfo, dm *api.Demand) (okFlag bool, okMsg string
 // Implementation of each Protocol API
 func (s *synerexServerInfo) NotifyDemand(c context.Context, dm *api.Demand) (r *api.Response, e error) {
 	// send demand for desired channels
-	okFlag, okMsg := sendDemand(s, dm)
+	okFlag, okMsg := sendDemand(s, dm, false)
 	r = &api.Response{Ok: okFlag, Err: okMsg}
 	return r, nil
 }
 
-func sendSupply(s *synerexServerInfo, sp *api.Supply) (okFlag bool, okMsg string) {
+func sendSupply(s *synerexServerInfo, sp *api.Supply, isGateway bool) (okFlag bool, okMsg string) {
 	s.smu.RLock()
 	totalMessages.Inc(1)
 	receiveMessages.Inc(1)
@@ -159,7 +159,7 @@ func sendSupply(s *synerexServerInfo, sp *api.Supply) (okFlag bool, okMsg string
 		}
 	}
 	s.smu.RUnlock()
-	if len(s.gatewayMap) > 0 {
+	if len(s.gatewayMap) > 0 && !isGateway {
 		gm := &api.GatewayMsg{
 			SrcSynerexId: server_id,
 			MsgType:      api.MsgType_SUPPLY,
@@ -185,7 +185,7 @@ func (s *synerexServerInfo) NotifySupply(c context.Context, sp *api.Supply) (r *
 		r = &api.Response{Ok: false, Err: "ChannelType Error"}
 		return r, errors.New("ChannelType Error")
 	}
-	okFlag, okMsg := sendSupply(s, sp)
+	okFlag, okMsg := sendSupply(s, sp, false)
 	r = &api.Response{Ok: okFlag, Err: okMsg}
 	return r, nil
 }
@@ -198,7 +198,7 @@ func (s *synerexServerInfo) ProposeDemand(c context.Context, dm *api.Demand) (r 
 		return r, errors.New("ChannelType Error")
 	}
 
-	okFlag, okMsg := sendDemand(s, dm)
+	okFlag, okMsg := sendDemand(s, dm, false)
 	r = &api.Response{Ok: okFlag, Err: okMsg}
 	return r, nil
 }
@@ -209,7 +209,7 @@ func (s *synerexServerInfo) ProposeSupply(c context.Context, sp *api.Supply) (r 
 		r = &api.Response{Ok: false, Err: "ChannelType Error"}
 		return r, errors.New("ChannelType Error")
 	}
-	okFlag, okMsg := sendSupply(s, sp)
+	okFlag, okMsg := sendSupply(s, sp, false)
 	r = &api.Response{Ok: okFlag, Err: okMsg}
 	return r, nil
 }
@@ -589,10 +589,10 @@ func (s *synerexServerInfo) ForwardToGateway(ctx context.Context, gm *api.Gatewa
 	switch msgType {
 	case api.MsgType_DEMAND:
 		dm := gm.GetDemand()
-		okFlag, okMsg = sendDemand(s, dm)
+		okFlag, okMsg = sendDemand(s, dm, true)
 	case api.MsgType_SUPPLY:
 		sp := gm.GetSupply()
-		okFlag, okMsg = sendSupply(s, sp)
+		okFlag, okMsg = sendSupply(s, sp, true)
 		/*
 			case api.MsgType_TARGET:
 				tg := gm.GetTarget()
