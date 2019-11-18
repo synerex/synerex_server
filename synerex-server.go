@@ -730,6 +730,8 @@ func unaryServerInterceptor(logger *logrus.Logger, s *synerexServerInfo) grpc.Un
 			err = hErr
 		}
 
+		sxutil.MsgCountUp()
+
 		return reply, err
 	}
 }
