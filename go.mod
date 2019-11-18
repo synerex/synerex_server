@@ -14,9 +14,9 @@ require (
 	github.com/sirupsen/logrus v1.4.2
 	github.com/stretchr/testify v1.4.0 // indirect
 	github.com/synerex/synerex_api v0.2.1
-	github.com/synerex/synerex_nodeapi v0.4.3
+	github.com/synerex/synerex_nodeapi v0.4.6
 	github.com/synerex/synerex_proto v0.1.1
-	github.com/synerex/synerex_sxutil v0.3.5
+	github.com/synerex/synerex_sxutil v0.3.9
 	github.com/x-cray/logrus-prefixed-formatter v0.5.2
 	golang.org/x/crypto v0.0.0-20190923035154-9ee001bba392 // indirect
 	google.golang.org/grpc v1.23.1

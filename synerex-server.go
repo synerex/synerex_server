@@ -34,6 +34,7 @@ var (
 	port      = flag.Int("port", 10000, "The Synerex Server Listening Port")
 	servaddr  = flag.String("servaddr", getServerHostName(), "Server Address for Other Providers")
 	nodesrv   = flag.String("nodesrv", fmt.Sprintf("%s:9990", getNodeservHostName()), "Node ID Server")
+	name      = flag.String("name", "SynerexServer", "Server Name for Other Providers")
 	log       = logrus.New() // for default logging
 	server_id uint64
 )
@@ -729,6 +730,8 @@ func unaryServerInterceptor(logger *logrus.Logger, s *synerexServerInfo) grpc.Un
 			err = hErr
 		}
 
+		sxutil.MsgCountUp()
+
 		return reply, err
 	}
 }
@@ -793,7 +796,7 @@ func main() {
 
 	channels := []uint32{0, 1, 2, 3, 4, 5, 6, 7, 8} // current basic types+alpha
 
-	_, rerr := sxutil.RegisterNode(*nodesrv, "SynerexServer", channels, sxo)
+	_, rerr := sxutil.RegisterNode(*nodesrv, *name, channels, sxo)
 	//	monitorapi.InitMonitor(*monitor)
 	if rerr != nil {
 		log.Fatalln("Can't register synerex server")
