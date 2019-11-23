@@ -361,6 +361,7 @@ func (s *synerexServerInfo) SubscribeDemand(ch *api.Channel, stream api.Synerex_
 		return errors.New(fmt.Sprintf("duplicated SubscribeDemand ClientID %d", idt))
 	}
 
+    log.Printf("Subscribe Demand Type:%d, From: %x %s", ch.ChannelType  ,ch.ClientId,ch.ArgJson )
 	// It is better to logging here.
 	//	monitorapi.SendMes(&monitorapi.Mes{Message:"Subscribe Demand", Args: fmt.Sprintf("Type:%d,From: %x  %s",ch.Type,ch.ClientId, ch.ArgJson )})
 	//	monitorapi.SendMessage("SubscribeDemand", int(ch.Type), 0, ch.ClientId, 0, 0, ch.ArgJson)
@@ -410,6 +411,7 @@ func (s *synerexServerInfo) SubscribeSupply(ch *api.Channel, stream api.Synerex_
 
 	subCh := make(chan *api.Supply, MessageChannelBufferSize)
 
+    log.Printf("Subscribe Supply Type:%d, From: %x %s", ch.ChannelType  ,ch.ClientId,ch.ArgJson )
 	//	monitorapi.SendMes(&monitorapi.Mes{Message:"Subscribe Supply", Args: fmt.Sprintf("Type:%d, From: %x %s",ch.Type,ch.ClientId,ch.ArgJson )})
 	//	monitorapi.SendMessage("SubscribeSupply", int(ch.Type), 0, ch.ClientId, 0, 0, ch.ArgJson)
 
