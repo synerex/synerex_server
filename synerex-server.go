@@ -7,7 +7,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	golog "log"
 	"net"
 	"os"
 	"path"
@@ -16,13 +15,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	api "github.com/synerex/synerex_api"
 	nodeapi "github.com/synerex/synerex_nodeapi"
 	pbase "github.com/synerex/synerex_proto"
 	sxutil "github.com/synerex/synerex_sxutil"
 
 	"github.com/rcrowley/go-metrics"
-	"github.com/sirupsen/logrus"
 	logprefix "github.com/x-cray/logrus-prefixed-formatter"
 
 	"google.golang.org/grpc"
@@ -80,18 +79,21 @@ func getNodeservHostName() string {
 }
 
 func init() {
-	sxutil.InitNodeNum(0)
+	//	sxutil.InitNodeNum(0)
 
 	// for Logrus initialization
 	log.Formatter = new(logprefix.TextFormatter)
 	log.Level = logrus.DebugLevel // TODO: Should we change this by flag?
+
+	//	log.Printf("Initialized!")
 
 	// for metrics initialization
 	metrics.Register("messages.total", totalMessages)
 	metrics.Register("messages.receive", receiveMessages)
 	metrics.Register("messages.send", sendMessages)
 
-	go metrics.Log(metrics.DefaultRegistry, 5*time.Second, golog.New(os.Stderr, "metrics: ", golog.Lmicroseconds))
+	// log -> syslog
+	InitMetricsLog()
 
 }
 
