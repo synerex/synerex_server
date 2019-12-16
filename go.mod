@@ -16,10 +16,10 @@ require (
 	github.com/stretchr/testify v1.4.0 // indirect
 	github.com/synerex/synerex_api v0.2.1
 	github.com/synerex/synerex_nodeapi v0.4.6
-	github.com/synerex/synerex_proto v0.1.1
-	github.com/synerex/synerex_sxutil v0.3.9
+	github.com/synerex/synerex_proto v0.1.4
+	github.com/synerex/synerex_sxutil v0.3.12
 	github.com/x-cray/logrus-prefixed-formatter v0.5.2
 	golang.org/x/crypto v0.0.0-20190923035154-9ee001bba392 // indirect
-	google.golang.org/grpc v1.23.1
+	google.golang.org/grpc v1.25.1
 	gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15 // indirect
 )
