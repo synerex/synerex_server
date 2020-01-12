@@ -314,18 +314,16 @@ func (s *synerexServerInfo) Confirm(c context.Context, tg *api.Target) (r *api.R
 }
 
 // go routine which wait demand channel and sending demands to each providers.
-func demandServerFunc(ch chan *api.Demand, stream api.Synerex_SubscribeDemandServer, id sxutil.IDType) error {
-	for {
-		select {
-		case dm := <-ch: // may block until receiving info
-			err := stream.Send(dm)
-
-			if err != nil {
-				//				log.Printf("Error in DemandServer Error %v", err)
-				return err
-			}
+func demandServerFunc(ch chan *api.Demand, stream api.Synerex_SubscribeDemandServer, id sxutil.IDType, chnum uint32) error {
+	for dm := range ch { // block until receiving info
+		err := stream.Send(dm)
+		if err != nil {
+			log.Printf("Error in DemandServer Error %v", err)
+			return err
 		}
 	}
+	log.Printf("SubscribeDemand for Client node %v Channel %d is closed.", id, chnum)
+	return nil
 }
 
 // remove channel from slice
@@ -361,7 +359,7 @@ func (s *synerexServerInfo) SubscribeDemand(ch *api.Channel, stream api.Synerex_
 		return errors.New(fmt.Sprintf("duplicated SubscribeDemand ClientID %d", idt))
 	}
 
-    log.Printf("Subscribe Demand Type:%d, From: %x %s", ch.ChannelType  ,ch.ClientId,ch.ArgJson )
+	log.Printf("Subscribe Demand Type:%d, From: %x %s", ch.ChannelType, ch.ClientId, ch.ArgJson)
 	// It is better to logging here.
 	//	monitorapi.SendMes(&monitorapi.Mes{Message:"Subscribe Demand", Args: fmt.Sprintf("Type:%d,From: %x  %s",ch.Type,ch.ClientId, ch.ArgJson )})
 	//	monitorapi.SendMessage("SubscribeDemand", int(ch.Type), 0, ch.ClientId, 0, 0, ch.ArgJson)
@@ -373,7 +371,7 @@ func (s *synerexServerInfo) SubscribeDemand(ch *api.Channel, stream api.Synerex_
 	s.demandChans[tp] = append(s.demandChans[tp], subCh)
 	s.demandMap[tp][idt] = subCh // mapping from clientID to channel
 	s.dmu.Unlock()
-	demandServerFunc(subCh, stream, idt) // infinite go routine?
+	demandServerFunc(subCh, stream, idt, tp) // infinite go routine?
 	// if this returns, stream might be closed.
 	// we should remove channel
 	s.dmu.Lock()
@@ -386,17 +384,16 @@ func (s *synerexServerInfo) SubscribeDemand(ch *api.Channel, stream api.Synerex_
 
 // This function is created for each subscribed provider
 // This is not efficient if the number of providers increases.
-func supplyServerFunc(ch chan *api.Supply, stream api.Synerex_SubscribeSupplyServer) error {
-	for {
-		select {
-		case sp := <-ch:
-			err := stream.Send(sp)
-			if err != nil {
-				//				log.Printf("Error SupplyServer Error %v", err)
-				return err
-			}
+func supplyServerFunc(ch chan *api.Supply, stream api.Synerex_SubscribeSupplyServer, idt sxutil.IDType, chnum uint32) error {
+	for sp := range ch { // block until receiving info
+		err := stream.Send(sp)
+		if err != nil {
+			log.Printf("Error in SupplyServer Error %v", err)
+			return err
 		}
 	}
+	log.Printf("SubscribeSupply for Client node %v Channel %d is closed.", idt, chnum)
+	return nil
 }
 
 func (s *synerexServerInfo) SubscribeSupply(ch *api.Channel, stream api.Synerex_SubscribeSupplyServer) error {
@@ -411,7 +408,7 @@ func (s *synerexServerInfo) SubscribeSupply(ch *api.Channel, stream api.Synerex_
 
 	subCh := make(chan *api.Supply, MessageChannelBufferSize)
 
-    log.Printf("Subscribe Supply Type:%d, From: %x %s", ch.ChannelType  ,ch.ClientId,ch.ArgJson )
+	log.Printf("Subscribe Supply Type:%d, From: %x %s", ch.ChannelType, ch.ClientId, ch.ArgJson)
 	//	monitorapi.SendMes(&monitorapi.Mes{Message:"Subscribe Supply", Args: fmt.Sprintf("Type:%d, From: %x %s",ch.Type,ch.ClientId,ch.ArgJson )})
 	//	monitorapi.SendMessage("SubscribeSupply", int(ch.Type), 0, ch.ClientId, 0, 0, ch.ArgJson)
 
@@ -419,7 +416,7 @@ func (s *synerexServerInfo) SubscribeSupply(ch *api.Channel, stream api.Synerex_
 	s.supplyChans[tp] = append(s.supplyChans[tp], subCh)
 	s.supplyMap[tp][idt] = subCh // mapping from clientID to channel
 	s.smu.Unlock()
-	err := supplyServerFunc(subCh, stream)
+	err := supplyServerFunc(subCh, stream, idt, tp)
 	// this supply stream may closed. so take care.
 
 	s.smu.Lock()
@@ -429,6 +426,86 @@ func (s *synerexServerInfo) SubscribeSupply(ch *api.Channel, stream api.Synerex_
 	s.smu.Unlock()
 
 	return err
+}
+
+// for closing demand channel
+func (s *synerexServerInfo) CloseDemandChannel(ctx context.Context, ch *api.Channel) (resp *api.Response, err error) {
+	idt := sxutil.IDType(ch.GetClientId())
+	tp := ch.GetChannelType()
+	err = nil
+	s.smu.Lock()
+	subCh, ok := s.demandMap[tp][idt]
+	if ok {
+		delete(s.demandMap[tp], idt) // remove map from idt
+		s.demandChans[tp] = removeDemandChannelFromSlice(s.demandChans[tp], subCh)
+		log.Printf("Remove Demand Channel %v", ch)
+		close(subCh) // close subchannel!
+		resp = &api.Response{
+			Ok: true,
+		}
+	} else {
+		log.Printf("Cannot find Demand Channel %v", ch)
+		resp = &api.Response{
+			Ok:  false,
+			Err: fmt.Sprintf("Cannot find Demand Channel %v", ch),
+		}
+	}
+	s.smu.Unlock()
+	return resp, nil
+}
+
+//
+func (s *synerexServerInfo) CloseSupplyChannel(ctx context.Context, ch *api.Channel) (resp *api.Response, err error) {
+	idt := sxutil.IDType(ch.GetClientId())
+	tp := ch.GetChannelType()
+	s.smu.Lock()
+	subCh, ok := s.supplyMap[tp][idt]
+	if ok {
+		delete(s.supplyMap[tp], idt) // remove map from idt
+		s.supplyChans[tp] = removeSupplyChannelFromSlice(s.supplyChans[tp], subCh)
+		log.Printf("Remove Supply Channel %v", ch)
+		close(subCh) // close subchannel!
+		resp = &api.Response{
+			Ok: true,
+		}
+	} else {
+		log.Printf("Cannot find Supply Channel %v", ch)
+		resp = &api.Response{
+			Ok:  false,
+			Err: fmt.Sprintf("Cannot find Supply Channel %v", ch),
+		}
+	}
+	s.smu.Unlock()
+	return resp, nil
+}
+
+// Closing all channels related to provider ID.
+func (s *synerexServerInfo) CloseAllChannels(ctx context.Context, pid *api.ProviderID) (resp *api.Response, err error) {
+	idt := sxutil.IDType(pid.GetClientId())
+	s.smu.Lock()
+	// starting from supplyMap
+	for tp, chans := range s.supplyMap {
+		subCh, ok := chans[idt]
+		if ok {
+			delete(chans, idt) // remove map from idt
+			s.supplyChans[tp] = removeSupplyChannelFromSlice(s.supplyChans[tp], subCh)
+			log.Printf("Remove Supply Channel node_id %v, chan %v", idt, tp)
+			close(subCh) // close subchannel!
+		}
+	}
+	for tp, chans := range s.demandMap {
+		subCh, ok := chans[idt]
+		if ok {
+			delete(chans, idt) // remove map from idt
+			s.demandChans[tp] = removeDemandChannelFromSlice(s.demandChans[tp], subCh)
+			log.Printf("Remove Demand Channel node_id %v, chan %v", idt, tp)
+			close(subCh) // close subchannel!
+		}
+	}
+	resp = &api.Response{
+		Ok: true,
+	}
+	return resp, nil
 }
 
 // This function is created for each subscribed provider
