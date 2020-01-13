@@ -830,7 +830,9 @@ func unaryServerInterceptor(logger *log.Logger, s *synerexServerInfo) grpc.Unary
 			// Obtain method name from info
 			method := path.Base(info.FullMethod)
 			took := time.Since(begin)
-			logger.Printf("method %s, took %#v, err %v", method, took, err)
+			if err != nil {
+				logger.Printf("method %s, took %#v, err %v", method, took, err)
+			}
 			/*
 				fields := logrus.Fields{
 					"method": method,
@@ -874,7 +876,9 @@ func streamServerInterceptor(logger *log.Logger) grpc.StreamServerInterceptor {
 			// Obtain method name from info
 			method := path.Base(info.FullMethod)
 			took := time.Since(begin)
-			logger.Printf("method %s, took %#v, err %v", method, took, err)
+			if err != nil {
+				logger.Printf("method %s, took %#v, err %v", method, took, err)
+			}
 			//	logger.Printf("method %s, took %#v",method, took)
 			/*			fields := logrus.Fields{
 							"method": method,
