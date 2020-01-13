@@ -18,7 +18,7 @@ require (
 	github.com/synerex/synerex_api v0.3.1
 	github.com/synerex/synerex_nodeapi v0.5.1
 	github.com/synerex/synerex_proto v0.1.6
-	github.com/synerex/synerex_sxutil v0.4.6
+	github.com/synerex/synerex_sxutil v0.4.7
 	github.com/x-cray/logrus-prefixed-formatter v0.5.2
 	golang.org/x/crypto v0.0.0-20191227163750-53104e6ec876 // indirect
 	golang.org/x/xerrors v0.0.0-20191204190536-9bdfabe68543 // indirect
@@ -26,3 +26,5 @@ require (
 	gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15 // indirect
 	gopkg.in/yaml.v2 v2.2.7 // indirect
 )
+
+//replace github.com/synerex/synerex_sxutil => ../sxutil
