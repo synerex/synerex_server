@@ -4,9 +4,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"path"
@@ -15,14 +17,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	api "github.com/synerex/synerex_api"
 	nodeapi "github.com/synerex/synerex_nodeapi"
 	pbase "github.com/synerex/synerex_proto"
 	sxutil "github.com/synerex/synerex_sxutil"
 
 	"github.com/rcrowley/go-metrics"
-	logprefix "github.com/x-cray/logrus-prefixed-formatter"
 
 	"google.golang.org/grpc"
 )
@@ -30,12 +30,13 @@ import (
 const MessageChannelBufferSize = 100
 
 var (
-	port      = flag.Int("port", 10000, "The Synerex Server Listening Port")
-	servaddr  = flag.String("servaddr", getServerHostName(), "Server Address for Other Providers")
-	nodesrv   = flag.String("nodesrv", fmt.Sprintf("%s:9990", getNodeservHostName()), "Node ID Server")
-	name      = flag.String("name", "SynerexServer", "Server Name for Other Providers")
-	log       = logrus.New() // for default logging
+	port     = flag.Int("port", 10000, "The Synerex Server Listening Port")
+	servaddr = flag.String("servaddr", getServerHostName(), "Server Address for Other Providers")
+	nodesrv  = flag.String("nodesrv", fmt.Sprintf("%s:9990", getNodeservHostName()), "Node ID Server")
+	name     = flag.String("name", "SynerexServer", "Server Name for Other Providers")
+	//	log       = logrus.New() // for default logging
 	server_id uint64
+	sinfo     *synerexServerInfo
 )
 
 //type sxutil.IDType uint64
@@ -82,8 +83,8 @@ func init() {
 	//	sxutil.InitNodeNum(0)
 
 	// for Logrus initialization
-	log.Formatter = new(logprefix.TextFormatter)
-	log.Level = logrus.DebugLevel // TODO: Should we change this by flag?
+	//	log.Formatter = new(logprefix.TextFormatter)
+	//	log.Level = logrus.DebugLevel // TODO: Should we change this by flag?
 
 	//	log.Printf("Initialized!")
 
@@ -113,7 +114,7 @@ func sendDemand(s *synerexServerInfo, dm *api.Demand, isGateway bool) (okFlag bo
 		} else {
 			okFlag = false
 			okMsg = fmt.Sprintf("SendDemand MessageDrop %v", dm)
-			log.Warn(okMsg)
+			log.Printf(okMsg)
 		}
 	}
 	s.dmu.RUnlock()
@@ -157,7 +158,7 @@ func sendSupply(s *synerexServerInfo, sp *api.Supply, isGateway bool) (okFlag bo
 		} else {
 			okMsg = fmt.Sprintf("SendSupply MessageDrop %v", sp)
 			okFlag = false
-			log.Warn(okMsg)
+			log.Printf(okMsg)
 		}
 	}
 	s.smu.RUnlock()
@@ -183,7 +184,7 @@ func (s *synerexServerInfo) NotifySupply(c context.Context, sp *api.Supply) (r *
 	//	fmt.Printf("Notify Supply!!!")
 	ctype := sp.GetChannelType()
 	if ctype == 0 || ctype >= pbase.ChannelTypeMax {
-		log.Error("ChannelType Error! %d", ctype)
+		log.Printf("ChannelType Error! %d", ctype)
 		r = &api.Response{Ok: false, Err: "ChannelType Error"}
 		return r, errors.New("ChannelType Error")
 	}
@@ -195,7 +196,7 @@ func (s *synerexServerInfo) NotifySupply(c context.Context, sp *api.Supply) (r *
 func (s *synerexServerInfo) ProposeDemand(c context.Context, dm *api.Demand) (r *api.Response, e error) {
 	ctype := dm.GetChannelType()
 	if ctype == 0 || ctype >= pbase.ChannelTypeMax {
-		log.Error("ChannelType Error! %d", ctype)
+		log.Printf("ChannelType Error! %d", ctype)
 		r = &api.Response{Ok: false, Err: "ChannelType Error"}
 		return r, errors.New("ChannelType Error")
 	}
@@ -207,7 +208,7 @@ func (s *synerexServerInfo) ProposeDemand(c context.Context, dm *api.Demand) (r 
 func (s *synerexServerInfo) ProposeSupply(c context.Context, sp *api.Supply) (r *api.Response, e error) {
 	ctype := sp.GetChannelType()
 	if ctype == 0 || ctype >= pbase.ChannelTypeMax {
-		log.Error("ChannelType Error! %d", ctype)
+		log.Printf("ChannelType Error! %d", ctype)
 		r = &api.Response{Ok: false, Err: "ChannelType Error"}
 		return r, errors.New("ChannelType Error")
 	}
@@ -220,7 +221,7 @@ func (s *synerexServerInfo) SelectSupply(c context.Context, tg *api.Target) (r *
 	targetSender := s.messageStore.getSrcId(tg.GetTargetId()) // find source from Id
 	ctype := tg.GetChannelType()
 	if ctype == 0 || ctype >= pbase.ChannelTypeMax {
-		log.Error("ChannelType Error! %d", ctype)
+		log.Printf("ChannelType Error! %d", ctype)
 		r = &api.ConfirmResponse{Ok: false, Err: "ChannelType Error"}
 		return r, errors.New("ChannelType Error")
 	}
@@ -356,7 +357,7 @@ func (s *synerexServerInfo) SubscribeDemand(ch *api.Channel, stream api.Synerex_
 	_, ok := s.demandMap[ch.ChannelType][idt]
 	s.dmu.RUnlock()
 	if ok { // check the availability of duplicated client ID
-		return errors.New(fmt.Sprintf("duplicated SubscribeDemand ClientID %d", idt))
+		return fmt.Errorf("duplicated SubscribeDemand ClientID %d", idt)
 	}
 
 	log.Printf("Subscribe Demand Type:%d, From: %x %s", ch.ChannelType, ch.ClientId, ch.ArgJson)
@@ -374,10 +375,14 @@ func (s *synerexServerInfo) SubscribeDemand(ch *api.Channel, stream api.Synerex_
 	demandServerFunc(subCh, stream, idt, tp) // infinite go routine?
 	// if this returns, stream might be closed.
 	// we should remove channel
+
 	s.dmu.Lock()
-	delete(s.demandMap[tp], idt) // remove map from idt
-	s.demandChans[tp] = removeDemandChannelFromSlice(s.demandChans[tp], subCh)
-	log.Printf("Remove Demand Stream Channel %v", ch)
+	_, ok = s.demandMap[tp][idt]
+	if ok {
+		delete(s.demandMap[tp], idt) // remove map from idt
+		s.demandChans[tp] = removeDemandChannelFromSlice(s.demandChans[tp], subCh)
+		log.Printf("Remove Demand Stream Channel %v", ch)
+	}
 	s.dmu.Unlock()
 	return nil
 }
@@ -408,7 +413,7 @@ func (s *synerexServerInfo) SubscribeSupply(ch *api.Channel, stream api.Synerex_
 
 	subCh := make(chan *api.Supply, MessageChannelBufferSize)
 
-	log.Printf("Subscribe Supply Type:%d, From: %x %s", ch.ChannelType, ch.ClientId, ch.ArgJson)
+	log.Printf("Subscribe Supply Channel:%d, Node:%d Args: %s", ch.ChannelType, ch.ClientId, ch.ArgJson)
 	//	monitorapi.SendMes(&monitorapi.Mes{Message:"Subscribe Supply", Args: fmt.Sprintf("Type:%d, From: %x %s",ch.Type,ch.ClientId,ch.ArgJson )})
 	//	monitorapi.SendMessage("SubscribeSupply", int(ch.Type), 0, ch.ClientId, 0, 0, ch.ArgJson)
 
@@ -420,9 +425,12 @@ func (s *synerexServerInfo) SubscribeSupply(ch *api.Channel, stream api.Synerex_
 	// this supply stream may closed. so take care.
 
 	s.smu.Lock()
-	delete(s.supplyMap[tp], idt) // remove map from idt
-	s.supplyChans[tp] = removeSupplyChannelFromSlice(s.supplyChans[tp], subCh)
-	log.Printf("Remove Supply Stream Channel %v", ch)
+	_, ok = s.supplyMap[tp][idt] // still exist? (may removed by others)
+	if ok {
+		delete(s.supplyMap[tp], idt) // remove map from idt
+		s.supplyChans[tp] = removeSupplyChannelFromSlice(s.supplyChans[tp], subCh)
+		log.Printf("Remove Supply Stream Channel %v", ch)
+	}
 	s.smu.Unlock()
 
 	return err
@@ -479,29 +487,58 @@ func (s *synerexServerInfo) CloseSupplyChannel(ctx context.Context, ch *api.Chan
 	return resp, nil
 }
 
-// Closing all channels related to provider ID.
-func (s *synerexServerInfo) CloseAllChannels(ctx context.Context, pid *api.ProviderID) (resp *api.Response, err error) {
-	idt := sxutil.IDType(pid.GetClientId())
-	s.smu.Lock()
+func showAllSubscribers() {
+	supp := make([]string, 0)
+	for tp, chans := range sinfo.supplyMap {
+		if len(chans) > 0 {
+			supp = append(supp, fmt.Sprintf("SupplyType:%d", tp))
+			for node, _ := range chans {
+				supp = append(supp, fmt.Sprintf("ID:%d", node))
+			}
+		}
+	}
+	for tp, chans := range sinfo.demandMap {
+		if len(chans) > 0 {
+			supp = append(supp, fmt.Sprintf("DemandType:%d", tp))
+			for node, _ := range chans {
+				supp = append(supp, fmt.Sprintf("ID:%d", node))
+			}
+		}
+	}
+
+	log.Printf("ShowAll: %v", supp)
+}
+
+func closeAllChannels(node_id int32) {
+	idt := sxutil.IDType(node_id)
+	sinfo.smu.Lock()
 	// starting from supplyMap
-	for tp, chans := range s.supplyMap {
+	for tp, chans := range sinfo.supplyMap {
 		subCh, ok := chans[idt]
 		if ok {
 			delete(chans, idt) // remove map from idt
-			s.supplyChans[tp] = removeSupplyChannelFromSlice(s.supplyChans[tp], subCh)
+			// log.Printf("Length of supplyChans %d", len(sinfo.supplyChans[tp]))
+			sinfo.supplyChans[tp] = removeSupplyChannelFromSlice(sinfo.supplyChans[tp], subCh)
 			log.Printf("Remove Supply Channel node_id %v, chan %v", idt, tp)
 			close(subCh) // close subchannel!
 		}
 	}
-	for tp, chans := range s.demandMap {
+	for tp, chans := range sinfo.demandMap {
 		subCh, ok := chans[idt]
 		if ok {
 			delete(chans, idt) // remove map from idt
-			s.demandChans[tp] = removeDemandChannelFromSlice(s.demandChans[tp], subCh)
+			// log.Printf("Length of demandChans %d", len(sinfo.demandChans[tp]))
+			sinfo.demandChans[tp] = removeDemandChannelFromSlice(sinfo.demandChans[tp], subCh)
 			log.Printf("Remove Demand Channel node_id %v, chan %v", idt, tp)
 			close(subCh) // close subchannel!
 		}
 	}
+	sinfo.smu.Unlock()
+}
+
+// Closing all channels related to provider ID.
+func (s *synerexServerInfo) CloseAllChannels(ctx context.Context, pid *api.ProviderID) (resp *api.Response, err error) {
+	closeAllChannels(int32(pid.GetClientId()))
 	resp = &api.Response{
 		Ok: true,
 	}
@@ -591,7 +628,7 @@ func (s *synerexServerInfo) SendMsg(c context.Context, msg *api.MbusMsg) (r *api
 		} else {
 			okMsg = fmt.Sprintf("MBus MessageDrop %v", msg)
 			okFlag = false
-			log.Warn(okMsg)
+			log.Printf(okMsg)
 		}
 	}
 	s.mmu.RUnlock()
@@ -614,7 +651,7 @@ func (s *synerexServerInfo) CloseMbus(c context.Context, mb *api.Mbus) (r *api.R
 		} else {
 			okMsg = fmt.Sprintf("MBusClose MessageDrop %v", cmsg)
 			okFlag = false
-			log.Warn(okMsg)
+			log.Printf(okMsg)
 		}
 	}
 	s.mmu.RUnlock()
@@ -730,7 +767,7 @@ func idToNode(id uint64) string {
 	return rs2 + ":" + strconv.Itoa(nodeNum)
 }
 
-func unaryServerInterceptor(logger *logrus.Logger, s *synerexServerInfo) grpc.UnaryServerInterceptor {
+func unaryServerInterceptor(logger *log.Logger, s *synerexServerInfo) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		var err error
 		var args string
@@ -793,16 +830,19 @@ func unaryServerInterceptor(logger *logrus.Logger, s *synerexServerInfo) grpc.Un
 			// Obtain method name from info
 			method := path.Base(info.FullMethod)
 			took := time.Since(begin)
-			fields := logrus.Fields{
-				"method": method,
-				"took":   took,
-			}
-			if err != nil {
-				fields["error"] = err
-				logger.WithFields(fields).Error("Failed")
-			} else {
-				//				logger.WithFields(fields).Info("Succeeded")
-			}
+			logger.Printf("method %s, took %#v, err %v", method, took, err)
+			/*
+				fields := logrus.Fields{
+					"method": method,
+					"took":   took,
+				}
+				if err != nil {
+					fields["error"] = err
+					logger.WithFields(fields).Error("Failed")
+				} else {
+					//				logger.WithFields(fields).Info("Succeeded")
+				}
+			*/
 		}(time.Now())
 
 		// handler = RPC method
@@ -818,7 +858,7 @@ func unaryServerInterceptor(logger *logrus.Logger, s *synerexServerInfo) grpc.Un
 }
 
 // Stream Interceptor
-func streamServerInterceptor(logger *logrus.Logger) grpc.StreamServerInterceptor {
+func streamServerInterceptor(logger *log.Logger) grpc.StreamServerInterceptor {
 	return func(srv interface{}, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		var err error
 		//		var args string
@@ -834,16 +874,20 @@ func streamServerInterceptor(logger *logrus.Logger) grpc.StreamServerInterceptor
 			// Obtain method name from info
 			method := path.Base(info.FullMethod)
 			took := time.Since(begin)
-			fields := logrus.Fields{
-				"method": method,
-				"took":   took,
-			}
-			if err != nil {
-				fields["error"] = err
-				logger.WithFields(fields).Error("Failed")
-			} else {
-				logger.WithFields(fields).Info("Succeeded")
-			}
+			logger.Printf("method %s, took %#v, err %v", method, took, err)
+			//	logger.Printf("method %s, took %#v",method, took)
+			/*			fields := logrus.Fields{
+							"method": method,
+							"took":   took,
+						}
+						if err != nil {
+							fields["error"] = err
+							logger.WithFields(fields).Error("Failed")
+						} else {
+							logger.WithFields(fields).Info("Succeeded")
+						}
+			*/
+
 		}(time.Now())
 
 		// handler = RPC method
@@ -861,6 +905,27 @@ func prepareGrpcServer(ssi *synerexServerInfo, opts ...grpc.ServerOption) *grpc.
 	return gcServer
 }
 
+func keepAliveFunc(cmd nodeapi.KeepAliveCommand, str string) {
+	//	log.Printf("KeepAlive func %v %v ", cmd, str)
+	if cmd == nodeapi.KeepAliveCommand_PROVIDER_DISCONNECT { // we need to purge
+		log.Printf("Clear Channel command from NodeServ %s", str)
+
+		var killNodes []int32
+		err := json.Unmarshal([]byte(str), &killNodes)
+		if err == nil {
+			showAllSubscribers()
+			for i := range killNodes {
+				log.Printf("Closing node %d", killNodes[i])
+				closeAllChannels(killNodes[i])
+			}
+		} else {
+			log.Printf("Unmarshal Err %#v", err)
+		}
+
+	}
+
+}
+
 func main() {
 	flag.Parse()
 	go sxutil.HandleSigInt()
@@ -875,9 +940,9 @@ func main() {
 		AreaId:     "Default",
 	}
 
-	channels := []uint32{0, 1, 2, 3, 4, 5, 6, 7, 8} // current basic types+alpha
+	channels := []uint32{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11} // current basic types+alpha
 
-	_, rerr := sxutil.RegisterNode(*nodesrv, *name, channels, sxo)
+	_, rerr := sxutil.RegisterNodeWithCmd(*nodesrv, *name, channels, sxo, keepAliveFunc)
 	//	monitorapi.InitMonitor(*monitor)
 	if rerr != nil {
 		log.Fatalln("Can't register synerex server")
@@ -893,7 +958,8 @@ func main() {
 	var opts []grpc.ServerOption
 
 	s := newServerInfo()
-	opts = append(opts, grpc.UnaryInterceptor(unaryServerInterceptor(log, s)))
+	sinfo = s
+	opts = append(opts, grpc.UnaryInterceptor(unaryServerInterceptor(log.New(os.Stdout, "[Unary]", log.LstdFlags|log.LUTC), s)))
 
 	// for more precise monitoring , we do not use StreamIntercepter.
 	//	opts = append(opts, grpc.StreamInterceptor(streamServerInterceptor(logger)))

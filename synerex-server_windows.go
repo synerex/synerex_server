@@ -2,7 +2,7 @@ package main
 
 import (
 	"time"
-
+	"log"
 	"github.com/rcrowley/go-metrics"
 )
 

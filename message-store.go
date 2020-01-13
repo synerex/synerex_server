@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"sync"
 )
 
@@ -46,7 +47,7 @@ func (mst *MessageStore) init() {
 	mst.limit_pt = 0
 	mst.count = 0
 	mst.limit = make([]uint64, mst.limit_max)
-	log.Println("Initialize LocalStore ", mst.store)
+	log.Printf("Initialize LocalStore with limit %d", mst.limit_max)
 }
 
 //todo: This is not efficient store. So we need to fix it.
