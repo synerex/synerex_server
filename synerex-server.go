@@ -969,6 +969,7 @@ func main() {
 	//	opts = append(opts, grpc.StreamInterceptor(streamServerInterceptor(logger)))
 
 	grpcServer := prepareGrpcServer(s, opts...)
+	log.Printf("SynerexServer(%s) built %s sha1 %s", sxutil.GitVer, sxutil.BuildTime, sxutil.Sha1Ver)
 	log.Printf("Start Synerex Server, connection waiting at port :%d ...", *port)
 	serr := grpcServer.Serve(lis)
 	log.Printf("Should not arrive here.. server closed. %v", serr)
