@@ -932,11 +932,12 @@ func keepAliveFunc(cmd nodeapi.KeepAliveCommand, str string) {
 
 func main() {
 	flag.Parse()
+	log.Printf("SynerexServer(%s) built %s sha1 %s", sxutil.GitVer, sxutil.BuildTime, sxutil.Sha1Ver)
 	go sxutil.HandleSigInt()
 	sxutil.RegisterDeferFunction(sxutil.UnRegisterNode)
 
 	srvaddr := fmt.Sprintf("%s:%d", *servaddr, *port)
-	fmt.Printf("ServerInfo %s\n", srvaddr)
+	//	fmt.Printf("ServerInfo %s\n", srvaddr)
 	sxo := &sxutil.SxServerOpt{
 		ServerInfo: srvaddr,
 		NodeType:   nodeapi.NodeType_SERVER,
@@ -969,7 +970,6 @@ func main() {
 	//	opts = append(opts, grpc.StreamInterceptor(streamServerInterceptor(logger)))
 
 	grpcServer := prepareGrpcServer(s, opts...)
-	log.Printf("SynerexServer(%s) built %s sha1 %s", sxutil.GitVer, sxutil.BuildTime, sxutil.Sha1Ver)
 	log.Printf("Start Synerex Server, connection waiting at port :%d ...", *port)
 	serr := grpcServer.Serve(lis)
 	log.Printf("Should not arrive here.. server closed. %v", serr)
