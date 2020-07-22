@@ -59,6 +59,7 @@ var (
 	totalMessages   = metrics.NewCounter()
 	receiveMessages = metrics.NewCounter()
 	sendMessages    = metrics.NewCounter()
+	mbusMessages    = metrics.NewCounter()
 )
 
 func getServerHostName() string {
@@ -92,6 +93,7 @@ func init() {
 	metrics.Register("messages.total", totalMessages)
 	metrics.Register("messages.receive", receiveMessages)
 	metrics.Register("messages.send", sendMessages)
+	metrics.Register("messages.mbus", mbusMessages)
 
 	// log -> syslog
 	InitMetricsLog()
@@ -554,6 +556,7 @@ func mbusServerFunc(ch chan *api.MbusMsg, stream api.Synerex_SubscribeMbusServer
 			if msg.GetMsgId() == 0 { // close message
 				return nil // grace close
 			}
+
 			if sxutil.IDType(msg.GetSenderId()) != id { // do not send msg from myself
 				tgt := sxutil.IDType(msg.GetTargetId())
 				if tgt == 0 || tgt == id { // =0 broadcast , = tgt unicast
@@ -562,6 +565,8 @@ func mbusServerFunc(ch chan *api.MbusMsg, stream api.Synerex_SubscribeMbusServer
 						//				log.Printf("Error mBus Error %v", err)
 						return err
 					}
+					totalMessages.Inc(1) // update total counter
+					mbusMessages.Inc(1)  // update mbus counter
 				}
 			}
 		}
@@ -583,7 +588,7 @@ func (s *synerexServerInfo) SubscribeMbus(mb *api.Mbus, stream api.Synerex_Subsc
 	id := sxutil.IDType(mb.GetClientId())
 	mbid := mb.MbusId
 	s.mmu.Lock()
-	chans := s.mbusChans[mbid]
+	chans := s.mbusChans[mbid] //TODO: need to check if there is mbus_id int the channel.
 	s.mbusChans[mbid] = append(chans, mbusCh)
 	mm, ok := s.mbusMap[id]
 	if ok {
@@ -595,7 +600,7 @@ func (s *synerexServerInfo) SubscribeMbus(mb *api.Mbus, stream api.Synerex_Subsc
 	}
 	s.mmu.Unlock()
 
-	err := mbusServerFunc(mbusCh, stream, id)
+	err := mbusServerFunc(mbusCh, stream, id) // loop until close for each subscriber.
 
 	s.mmu.Lock()
 	s.mbusChans[mbid] = removeMbusChannelFromSlice(s.mbusChans[mbid], mbusCh)
@@ -606,7 +611,8 @@ func (s *synerexServerInfo) SubscribeMbus(mb *api.Mbus, stream api.Synerex_Subsc
 	return err
 }
 
-func (s *synerexServerInfo) SendMsg(c context.Context, msg *api.MbusMsg) (r *api.Response, err error) {
+// update name from synerex_api v0.4.1
+func (s *synerexServerInfo) SendMbusMsg(c context.Context, msg *api.MbusMsg) (r *api.Response, err error) {
 	// FIXME: wait until all subscriber is comming
 	for {
 		chans, ok := s.mbusChans[msg.GetMbusId()]
@@ -628,7 +634,7 @@ func (s *synerexServerInfo) SendMsg(c context.Context, msg *api.MbusMsg) (r *api
 		} else {
 			okMsg = fmt.Sprintf("MBus MessageDrop %v", msg)
 			okFlag = false
-			log.Printf(okMsg)
+			log.Printf(okMsg) // TODO: thisi is a critical log (message drop)
 		}
 	}
 	s.mmu.RUnlock()
@@ -657,6 +663,31 @@ func (s *synerexServerInfo) CloseMbus(c context.Context, mb *api.Mbus) (r *api.R
 	s.mmu.RUnlock()
 	r = &api.Response{Ok: okFlag, Err: okMsg}
 	return r, nil
+}
+
+// from synerex_api v0.4.0
+func (s *synerexServerInfo) CreateMbus(c context.Context, mbo *api.MbusOpt) (mb *api.Mbus, err error) {
+	// just generate new unique ID
+	// TODO: private mbus is not implemented yet!
+	if mbo.MbusType == api.MbusOpt_PRIVATE {
+		log.Printf("Private MBUS is not yet implemented!")
+	}
+	mb = &api.Mbus{}
+	mb.ClientId = 0                    // client must set their own ID.
+	mb.MbusId = sxutil.GenerateIntID() // generate unique ID for new Mbus.
+	return mb, nil
+}
+
+// from synerex_api v0.4.0
+func (s *synerexServerInfo) GetMbusState(c context.Context, mb *api.Mbus) (mbs *api.MbusState, err error) {
+	// return the status of Mbus.
+	// TODO: this method is not fully implemented yet!
+	mbs = &api.MbusState{
+		MbusId:      mb.MbusId,
+		Status:      api.MbusState_INVALID,
+		Subscribers: []uint64{},
+	}
+	return mbs, nil
 }
 
 func gatewayServerFunc(ch chan *api.GatewayMsg, ssgs api.Synerex_SubscribeGatewayServer) error {
