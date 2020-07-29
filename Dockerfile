@@ -25,6 +25,9 @@ COPY . .
 RUN sed -i 's/\r//' ./entrypoint.sh
 RUN chmod +x ./entrypoint.sh
 
+# build
+RUN go build
+
 # expose port
 EXPOSE 10000
 ENTRYPOINT [ "./entrypoint.sh" ]
