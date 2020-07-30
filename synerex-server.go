@@ -978,10 +978,20 @@ func main() {
 
 	channels := []uint32{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11} // current basic types+alpha
 
-	_, rerr := sxutil.RegisterNodeWithCmd(*nodesrv, *name, channels, sxo, keepAliveFunc)
-	//	monitorapi.InitMonitor(*monitor)
-	if rerr != nil {
-		log.Fatalln("Can't register synerex server")
+	//	_, rerr := sxutil.RegisterNodeWithCmd(*nodesrv, *name, channels, sxo, keepAliveFunc)
+	//	//	monitorapi.InitMonitor(*monitor)
+	//	if rerr != nil {
+	//		log.Fatalln("Can't register synerex server")
+	//	}
+	for {
+		_, rerr := sxutil.RegisterNodeWithCmd(*nodesrv, *name, channels, sxo, keepAliveFunc)
+		if rerr != nil {
+			log.Println("Can't register synerex server, reconnect now...")
+			time.Sleep(1 * time.Second)
+		} else {
+			log.Println("Register synerex server")
+			break
+		}
 	}
 	server_id = sxutil.GenerateIntID() // now obtain unique ID using node_id
 
