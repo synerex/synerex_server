@@ -30,11 +30,11 @@ import (
 const MessageChannelBufferSize = 100
 
 var (
-	port     = flag.Int("port", 10000, "The Synerex Server Listening Port")
-	servaddr = flag.String("servaddr", getServerHostName(), "Server Address for Other Providers")
-	nodesrv  = flag.String("nodesrv", fmt.Sprintf("%s:9990", getNodeservHostName()), "Node ID Server")
-	name     = flag.String("name", "SynerexServer", "Server Name for Other Providers")
-	ismet    = flag.Bool("metrics", true, "Expose Server Metrics")
+	port      = flag.Int("port", getServerPort(), "The Synerex Server Listening Port")
+	servaddr  = flag.String("servaddr", getServerHostName(), "Server Address for Other Providers")
+	nodesrv   = flag.String("nodesrv", fmt.Sprintf("%s:9990", getNodeservHostName()), "Node ID Server")
+	name      = flag.String("name", getServerName(), "Server Name for Other Providers")
+	isMetrics = flag.Bool("metrics", getIsMetrics(), "Expose Server Metrics")
 	//	log       = logrus.New() // for default logging
 	server_id uint64
 	sinfo     *synerexServerInfo
@@ -81,6 +81,34 @@ func getNodeservHostName() string {
 	}
 }
 
+func getServerPort() int {
+	env := os.Getenv("SX_SERVER_PORT")
+	if env != "" {
+		env, _ := strconv.Atoi(env)
+		return env
+	} else {
+		return 10000
+	}
+}
+
+func getServerName() string {
+	env := os.Getenv("SX_SERVER_NAME")
+	if env != "" {
+		return env
+	} else {
+		return "SynerexServer"
+	}
+}
+
+func getIsMetrics() bool {
+	env := os.Getenv("SX_SERVER_METRICS")
+	if env == "false" {
+		return false
+	} else {
+		return true
+	}
+}
+
 func init() {
 	//	sxutil.InitNodeNum(0)
 
@@ -90,7 +118,7 @@ func init() {
 
 	//	log.Printf("Initialized!")
 
-	if *ismet {
+	if *isMetrics {
 		log.Printf("Register Metrics")
 		// for metrics initialization
 		metrics.Register("messages.total", totalMessages)
