@@ -34,6 +34,7 @@ var (
 	servaddr = flag.String("servaddr", getServerHostName(), "Server Address for Other Providers")
 	nodesrv  = flag.String("nodesrv", fmt.Sprintf("%s:9990", getNodeservHostName()), "Node ID Server")
 	name     = flag.String("name", "SynerexServer", "Server Name for Other Providers")
+	ismet    = flag.Bool("metrics", true, "Expose Server Metrics")
 	//	log       = logrus.New() // for default logging
 	server_id uint64
 	sinfo     *synerexServerInfo
@@ -89,14 +90,17 @@ func init() {
 
 	//	log.Printf("Initialized!")
 
-	// for metrics initialization
-	metrics.Register("messages.total", totalMessages)
-	metrics.Register("messages.receive", receiveMessages)
-	metrics.Register("messages.send", sendMessages)
-	metrics.Register("messages.mbus", mbusMessages)
+	if *ismet {
+		log.Printf("Register Metrics")
+		// for metrics initialization
+		metrics.Register("messages.total", totalMessages)
+		metrics.Register("messages.receive", receiveMessages)
+		metrics.Register("messages.send", sendMessages)
+		metrics.Register("messages.mbus", mbusMessages)
 
-	// log -> syslog
-	InitMetricsLog()
+		// log -> syslog
+		InitMetricsLog()
+	}
 
 }
 
