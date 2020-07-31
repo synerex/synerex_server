@@ -32,7 +32,8 @@ const MessageChannelBufferSize = 100
 var (
 	port      = flag.Int("port", getServerPort(), "The Synerex Server Listening Port")
 	servaddr  = flag.String("servaddr", getServerHostName(), "Server Address for Other Providers")
-	nodesrv   = flag.String("nodesrv", fmt.Sprintf("%s:9990", getNodeservHostName()), "Node ID Server")
+	nodeport  = flag.Int("nodeport", getNodeservPort(), "The Node ID Server Listening Port")
+	nodeaddr  = flag.String("nodeaddr", getNodeservHostName(), "Node ID Server Address")
 	name      = flag.String("name", getServerName(), "Server Name for Other Providers")
 	isMetrics = flag.Bool("metrics", getIsMetrics(), "Expose Server Metrics")
 	//	log       = logrus.New() // for default logging
@@ -88,6 +89,16 @@ func getServerPort() int {
 		return env
 	} else {
 		return 10000
+	}
+}
+
+func getNodeservPort() int {
+	env := os.Getenv("SX_NODESERV_PORT")
+	if env != "" {
+		env, _ := strconv.Atoi(env)
+		return env
+	} else {
+		return 9990
 	}
 }
 
@@ -1016,7 +1027,7 @@ func main() {
 	//		log.Fatalln("Can't register synerex server")
 	//	}
 	for {
-		_, rerr := sxutil.RegisterNodeWithCmd(*nodesrv, *name, channels, sxo, keepAliveFunc)
+		_, rerr := sxutil.RegisterNodeWithCmd(fmt.Sprintf("%s:%d", *nodeaddr, *nodeport), *name, channels, sxo, keepAliveFunc)
 		if rerr != nil {
 			log.Println("Can't register synerex server, reconnect now...")
 			time.Sleep(1 * time.Second)
