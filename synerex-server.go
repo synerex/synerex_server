@@ -659,7 +659,7 @@ func (s *synerexServerInfo) SendMbusMsg(c context.Context, msg *api.MbusMsg) (r 
 	// FIXME: wait until all subscriber is comming
 	for {
 		chans, ok := s.mbusChans[msg.GetMbusId()]
-		if ok && len(chans) == 2 {
+		if ok && len(chans) >= 2 {
 			log.Printf("##### All subscriber comming!! [MbusID: %d]\n", msg.GetMbusId())
 			break
 		}
