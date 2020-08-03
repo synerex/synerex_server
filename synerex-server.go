@@ -30,10 +30,12 @@ import (
 const MessageChannelBufferSize = 100
 
 var (
-	port     = flag.Int("port", 10000, "The Synerex Server Listening Port")
-	servaddr = flag.String("servaddr", getServerHostName(), "Server Address for Other Providers")
-	nodesrv  = flag.String("nodesrv", fmt.Sprintf("%s:9990", getNodeservHostName()), "Node ID Server")
-	name     = flag.String("name", "SynerexServer", "Server Name for Other Providers")
+	port      = flag.Int("port", getServerPort(), "The Synerex Server Listening Port")
+	servaddr  = flag.String("servaddr", getServerHostName(), "Server Address for Other Providers")
+	nodeport  = flag.Int("nodeport", getNodeservPort(), "The Node ID Server Listening Port")
+	nodeaddr  = flag.String("nodeaddr", getNodeservHostName(), "Node ID Server Address")
+	name      = flag.String("name", getServerName(), "Server Name for Other Providers")
+	isMetrics = flag.Bool("metrics", getIsMetrics(), "Expose Server Metrics")
 	//	log       = logrus.New() // for default logging
 	server_id uint64
 	sinfo     *synerexServerInfo
@@ -80,6 +82,44 @@ func getNodeservHostName() string {
 	}
 }
 
+func getServerPort() int {
+	env := os.Getenv("SX_SERVER_PORT")
+	if env != "" {
+		env, _ := strconv.Atoi(env)
+		return env
+	} else {
+		return 10000
+	}
+}
+
+func getNodeservPort() int {
+	env := os.Getenv("SX_NODESERV_PORT")
+	if env != "" {
+		env, _ := strconv.Atoi(env)
+		return env
+	} else {
+		return 9990
+	}
+}
+
+func getServerName() string {
+	env := os.Getenv("SX_SERVER_NAME")
+	if env != "" {
+		return env
+	} else {
+		return "SynerexServer"
+	}
+}
+
+func getIsMetrics() bool {
+	env := os.Getenv("SX_SERVER_METRICS")
+	if env == "false" {
+		return false
+	} else {
+		return true
+	}
+}
+
 func init() {
 	//	sxutil.InitNodeNum(0)
 
@@ -89,14 +129,17 @@ func init() {
 
 	//	log.Printf("Initialized!")
 
-	// for metrics initialization
-	metrics.Register("messages.total", totalMessages)
-	metrics.Register("messages.receive", receiveMessages)
-	metrics.Register("messages.send", sendMessages)
-	metrics.Register("messages.mbus", mbusMessages)
+	if *isMetrics {
+		log.Printf("Register Metrics")
+		// for metrics initialization
+		metrics.Register("messages.total", totalMessages)
+		metrics.Register("messages.receive", receiveMessages)
+		metrics.Register("messages.send", sendMessages)
+		metrics.Register("messages.mbus", mbusMessages)
 
-	// log -> syslog
-	InitMetricsLog()
+		// log -> syslog
+		InitMetricsLog()
+	}
 
 }
 
@@ -616,7 +659,7 @@ func (s *synerexServerInfo) SendMbusMsg(c context.Context, msg *api.MbusMsg) (r 
 	// FIXME: wait until all subscriber is comming
 	for {
 		chans, ok := s.mbusChans[msg.GetMbusId()]
-		if ok && len(chans) == 2 {
+		if ok && len(chans) >= 2 {
 			log.Printf("##### All subscriber comming!! [MbusID: %d]\n", msg.GetMbusId())
 			break
 		}
@@ -984,7 +1027,7 @@ func main() {
 	//		log.Fatalln("Can't register synerex server")
 	//	}
 	for {
-		_, rerr := sxutil.RegisterNodeWithCmd(*nodesrv, *name, channels, sxo, keepAliveFunc)
+		_, rerr := sxutil.RegisterNodeWithCmd(fmt.Sprintf("%s:%d", *nodeaddr, *nodeport), *name, channels, sxo, keepAliveFunc)
 		if rerr != nil {
 			log.Println("Can't register synerex server, reconnect now...")
 			time.Sleep(1 * time.Second)
