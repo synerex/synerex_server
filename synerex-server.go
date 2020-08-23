@@ -190,6 +190,8 @@ func (s *synerexServerInfo) NotifyDemand(c context.Context, dm *api.Demand) (r *
 }
 
 func sendSupply(s *synerexServerInfo, sp *api.Supply, isGateway bool) (okFlag bool, okMsg string) {
+	okFlag = true
+	okMsg = ""
 	s.smu.RLock()
 	totalMessages.Inc(1)
 	receiveMessages.Inc(1)
