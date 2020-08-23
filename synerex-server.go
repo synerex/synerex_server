@@ -398,10 +398,10 @@ func removeSupplyChannelFromSlice(sl []chan *api.Supply, c chan *api.Supply) []c
 func (s *synerexServerInfo) SubscribeDemand(ch *api.Channel, stream api.Synerex_SubscribeDemandServer) error {
 	// TODO: we can check the duplication of node id here! (especially 1024 snowflake node ID)
 	idt := sxutil.IDType(ch.GetClientId())
-	s.dmu.RLock()
+	s.dmu.Lock()
 	_, ok := s.demandMap[ch.ChannelType][idt]
-	s.dmu.RUnlock()
 	if ok { // check the availability of duplicated client ID
+		s.dmu.Unlock()
 		return fmt.Errorf("duplicated SubscribeDemand ClientID %d", idt)
 	}
 
@@ -413,7 +413,6 @@ func (s *synerexServerInfo) SubscribeDemand(ch *api.Channel, stream api.Synerex_
 	subCh := make(chan *api.Demand, MessageChannelBufferSize)
 	// We should think about thread safe coding.
 	tp := ch.GetChannelType()
-	s.dmu.Lock()
 	s.demandChans[tp] = append(s.demandChans[tp], subCh)
 	s.demandMap[tp][idt] = subCh // mapping from clientID to channel
 	s.dmu.Unlock()
@@ -449,10 +448,10 @@ func supplyServerFunc(ch chan *api.Supply, stream api.Synerex_SubscribeSupplySer
 func (s *synerexServerInfo) SubscribeSupply(ch *api.Channel, stream api.Synerex_SubscribeSupplyServer) error {
 	idt := sxutil.IDType(ch.GetClientId())
 	tp := ch.GetChannelType()
-	s.smu.RLock()
+	s.smu.Lock()
 	_, ok := s.supplyMap[tp][idt]
-	s.smu.RUnlock()
 	if ok { // check the availability of duplicated client ID
+		s.smu.Unlock()
 		return errors.New(fmt.Sprintf("duplicated SubscribeSupply for ClientID %v", idt))
 	}
 
@@ -462,7 +461,6 @@ func (s *synerexServerInfo) SubscribeSupply(ch *api.Channel, stream api.Synerex_
 	//	monitorapi.SendMes(&monitorapi.Mes{Message:"Subscribe Supply", Args: fmt.Sprintf("Type:%d, From: %x %s",ch.Type,ch.ClientId,ch.ArgJson )})
 	//	monitorapi.SendMessage("SubscribeSupply", int(ch.Type), 0, ch.ClientId, 0, 0, ch.ArgJson)
 
-	s.smu.Lock()
 	s.supplyChans[tp] = append(s.supplyChans[tp], subCh)
 	s.supplyMap[tp][idt] = subCh // mapping from clientID to channel
 	s.smu.Unlock()
