@@ -273,6 +273,7 @@ func (s *synerexServerInfo) SelectSupply(c context.Context, tg *api.Target) (r *
 		return r, errors.New("ChannelType Error")
 	}
 	s.dmu.RLock()
+	// find subscribe demand with sender
 	ch, ok := s.demandMap[ctype][sxutil.IDType(targetSender)]
 	s.dmu.RUnlock()
 	if !ok {
@@ -288,7 +289,6 @@ func (s *synerexServerInfo) SelectSupply(c context.Context, tg *api.Target) (r *
 		}
 	}
 	id := sxutil.GenerateIntID()
-	//	id := uint64(node.Generate())
 	dm := &api.Demand{
 		Id:          id, // generate ID from synerex server
 		SenderId:    tg.SenderId,
@@ -440,6 +440,7 @@ func supplyServerFunc(ch chan *api.Supply, stream api.Synerex_SubscribeSupplySer
 		err := stream.Send(sp)
 		if err != nil {
 			log.Printf("Error in SupplyServer Error %v", err)
+			log.Printf("SubscribeSupply for Client node %v Channel %d is closed.", idt, chnum)
 			return err
 		}
 	}
@@ -657,10 +658,16 @@ func (s *synerexServerInfo) SubscribeMbus(mb *api.Mbus, stream api.Synerex_Subsc
 // update name from synerex_api v0.4.1
 func (s *synerexServerInfo) SendMbusMsg(c context.Context, msg *api.MbusMsg) (r *api.Response, err error) {
 	// FIXME: wait until all subscriber is comming
+	count := 0 // loop counter.
 	for {
 		chans, ok := s.mbusChans[msg.GetMbusId()]
 		if ok && len(chans) >= 2 {
 			log.Printf("##### All subscriber comming!! [MbusID: %d]\n", msg.GetMbusId())
+			break
+		}
+		count++
+		if count > 10 {
+			log.Printf("##### Mbus Subscription timeout [MbusId: %d]\n", msg.GetMbusId())
 			break
 		}
 		log.Printf("##### Another Subscriber wating... [MbusId: %d, len(chans): %d]\n", msg.GetMbusId(), len(chans))
