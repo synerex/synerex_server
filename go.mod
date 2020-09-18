@@ -16,7 +16,7 @@ require (
 	github.com/synerex/synerex_api v0.4.2
 	github.com/synerex/synerex_nodeapi v0.5.4
 	github.com/synerex/synerex_proto v0.1.9
-	github.com/synerex/synerex_sxutil v0.5.1
+	github.com/synerex/synerex_sxutil v0.5.2
 	github.com/x-cray/logrus-prefixed-formatter v0.5.2
 	golang.org/x/net v0.0.0-20200904194848-62affa334b73 // indirect
 	golang.org/x/sys v0.0.0-20200917073148-efd3b9a0ff20 // indirect
