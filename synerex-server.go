@@ -353,8 +353,10 @@ func (s *synerexServerInfo) Confirm(c context.Context, tg *api.Target) (r *api.R
 	s.wmu.RUnlock()
 	//	go monitorapi.SendMessage("ServConfirm", int(tg.ChannelType), tg.Id, tg.SenderId, 0, tg.TargetId, "ConfirmTo")
 	if !ok {
-		r = &api.Response{Ok: false, Err: "Can't find channel"}
-		return r, errors.New("can't find channels for Confirm")
+		ss := fmt.Sprintf("Can't find targetID %d in channel %d",tg.TargetId ,tg.ChannelType)
+		log.Print(ss)
+		r = &api.Response{Ok: false, Err: ss}
+		return r, errors.New(ss)
 	}
 	ch <- tg // send OK
 	r = &api.Response{Ok: true, Err: ""}
@@ -631,7 +633,14 @@ func (s *synerexServerInfo) SubscribeMbus(mb *api.Mbus, stream api.Synerex_Subsc
 	id := sxutil.IDType(mb.GetClientId())
 	mbid := mb.MbusId
 	s.mmu.Lock()
-	chans := s.mbusChans[mbid] //TODO: need to check if there is mbus_id int the channel.
+	chans, cok := s.mbusChans[mbid] 
+	if cok == false {
+		errstr := fmt.Sprintf("###Can't find Mbus Channel of %d", mbid)
+		log.Print(errstr)
+		s.mmu.Unlock()
+
+		return errors.New(errstr)
+	}
 	s.mbusChans[mbid] = append(chans, mbusCh)
 	mm, ok := s.mbusMap[id]
 	if ok {
