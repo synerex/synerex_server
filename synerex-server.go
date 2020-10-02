@@ -636,11 +636,9 @@ func (s *synerexServerInfo) SubscribeMbus(mb *api.Mbus, stream api.Synerex_Subsc
 	s.mmu.Lock()
 	chans, cok := s.mbusChans[mbid] 
 	if cok == false {
-		errstr := fmt.Sprintf("###Can't find Mbus Channel of %d", mbid)
-		log.Print(errstr)
-		s.mmu.Unlock()
-
-		return errors.New(errstr)
+		log.Printf("new MbusChan for MbusID %d", mbid)
+	}else{
+		log.Printf("next MbusChan for MbusID %d, len(%d)", mbid, len(chans))
 	}
 	s.mbusChans[mbid] = append(chans, mbusCh)
 	mm, ok := s.mbusMap[id]
