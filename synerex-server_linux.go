@@ -30,7 +30,6 @@ func periodicLog(r metrics.Registry, freq time.Duration) {
 }
 
 
-
 func InitMetricsLog() {
 	w, err := syslog.Dial("unixgram", "/dev/log", syslog.LOG_INFO, "synerex_metrics")
 	if err != nil {
