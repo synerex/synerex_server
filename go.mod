@@ -4,6 +4,7 @@ go 1.16
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/openzipkin/zipkin-go v0.2.5 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20201227073835-cf1acfcdf475
 	github.com/synerex/synerex_api v0.4.3
 	github.com/synerex/synerex_nodeapi v0.5.5
@@ -14,4 +15,4 @@ require (
 	google.golang.org/grpc v1.39.0
 )
 
-//replace github.com/synerex/synerex_sxutil => ../sxutil
+replace github.com/synerex/synerex_sxutil => ../sxutil

@@ -17,6 +17,10 @@ import (
 	"sync"
 	"time"
 
+	zipkin "github.com/openzipkin/zipkin-go"
+	zipkingrpc "github.com/openzipkin/zipkin-go/middleware/grpc"
+	httpreporter "github.com/openzipkin/zipkin-go/reporter/http"
+
 	api "github.com/synerex/synerex_api"
 	nodeapi "github.com/synerex/synerex_nodeapi"
 	pbase "github.com/synerex/synerex_proto"
@@ -36,6 +40,7 @@ var (
 	nodeaddr  = flag.String("nodeaddr", getNodeservHostName(), "Node ID Server Address")
 	name      = flag.String("name", getServerName(), "Server Name for Other Providers")
 	isMetrics = flag.Bool("metrics", getIsMetrics(), "Expose Server Metrics")
+	//	log       = logrus.New() // for default logging
 	//	log       = logrus.New() // for default logging
 	server_id uint64
 	sinfo     *synerexServerInfo
@@ -128,6 +133,9 @@ func init() {
 	//	log.Level = logrus.DebugLevel // TODO: Should we change this by flag?
 
 	//	log.Printf("Initialized!")
+	if sxutil.ZipkinHost != "" { // enable zipkin
+		*isMetrics = false // we do not need metric
+	}
 
 	if *isMetrics {
 		log.Printf("Register Metrics")
@@ -353,7 +361,7 @@ func (s *synerexServerInfo) Confirm(c context.Context, tg *api.Target) (r *api.R
 	s.wmu.RUnlock()
 	//	go monitorapi.SendMessage("ServConfirm", int(tg.ChannelType), tg.Id, tg.SenderId, 0, tg.TargetId, "ConfirmTo")
 	if !ok {
-		ss := fmt.Sprintf("Can't find targetID %d in channel %d",tg.TargetId ,tg.ChannelType)
+		ss := fmt.Sprintf("Can't find targetID %d in channel %d", tg.TargetId, tg.ChannelType)
 		log.Print(ss)
 		r = &api.Response{Ok: false, Err: ss}
 		return r, errors.New(ss)
@@ -634,10 +642,10 @@ func (s *synerexServerInfo) SubscribeMbus(mb *api.Mbus, stream api.Synerex_Subsc
 	id := sxutil.IDType(mb.GetClientId())
 	mbid := mb.MbusId
 	s.mmu.Lock()
-	chans, cok := s.mbusChans[mbid] 
+	chans, cok := s.mbusChans[mbid]
 	if cok == false {
 		log.Printf("new MbusChan for MbusID %d", mbid)
-	}else{
+	} else {
 		log.Printf("next MbusChan for MbusID %d, len(%d)", mbid, len(chans))
 	}
 	s.mbusChans[mbid] = append(chans, mbusCh)
@@ -1041,7 +1049,7 @@ func main() {
 	//		log.Fatalln("Can't register synerex server")
 	//	}
 	for {
-		_, rerr := sxutil.RegisterNodeWithCmd(fmt.Sprintf("%s:%d", *nodeaddr, *nodeport), *name, channels, sxo, keepAliveFunc)
+		_, rerr := sxutil.RegisterNodeWithCmd(fmt.Sprintf("%s:%d", *nodeaddr, *nodeport), *name, channels, sxo, "sxserv-nd", keepAliveFunc)
 		if rerr != nil {
 			log.Println("Can't register synerex server, reconnect now...")
 			time.Sleep(1 * time.Second)
@@ -1066,6 +1074,21 @@ func main() {
 
 	// for more precise monitoring , we do not use StreamIntercepter.
 	//	opts = append(opts, grpc.StreamInterceptor(streamServerInterceptor(logger)))
+
+	// for Zipkin
+	if sxutil.ZipkinHost != "" {
+		zhost := fmt.Sprintf("http://%s:%d/api/v2/spans", sxutil.ZipkinHost, sxutil.ZipkinPort)
+		reporter := httpreporter.NewReporter(zhost)
+		localEndpoint, lerr := zipkin.NewEndpoint("sxserv", srvaddr) // synerex server address
+		if lerr != nil {
+			log.Fatalf("sxserv:Can't create new Zipkin localEndpoint for sxserv:%v", lerr)
+		}
+		tracer, err := zipkin.NewTracer(reporter, zipkin.WithLocalEndpoint(localEndpoint))
+		if err != nil {
+			log.Fatalf("Can't open zipkin tracer for sxserv: %v", err)
+		}
+		opts = append(opts, grpc.StatsHandler(zipkingrpc.NewServerHandler(tracer)))
+	}
 
 	grpcServer := prepareGrpcServer(s, opts...)
 	log.Printf("Start Synerex Server, connection waiting at port :%d ...", *port)
