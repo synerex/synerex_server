@@ -448,6 +448,7 @@ func (s *synerexServerInfo) SubscribeDemand(ch *api.Channel, stream api.Synerex_
 func supplyServerFunc(ch chan *api.Supply, stream api.Synerex_SubscribeSupplyServer, idt sxutil.IDType, chnum uint32) error {
 	for sp := range ch { // block until receiving info
 		err := stream.Send(sp)
+		// zipkin trace!
 		if err != nil {
 			log.Printf("Error in SupplyServer Error %v", err)
 			log.Printf("SubscribeSupply for Client node %v Channel %d is closed.", idt, chnum)
@@ -1041,7 +1042,7 @@ func main() {
 		AreaId:     "Default",
 	}
 
-	channels := []uint32{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11} // current basic types+alpha
+	channels := []uint32{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20} // current basic types+alpha
 
 	//	_, rerr := sxutil.RegisterNodeWithCmd(*nodesrv, *name, channels, sxo, keepAliveFunc)
 	//	//	monitorapi.InitMonitor(*monitor)
