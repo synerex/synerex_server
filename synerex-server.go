@@ -24,7 +24,14 @@ import (
 
 	"github.com/rcrowley/go-metrics"
 
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+
 	"google.golang.org/grpc"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	semconv "go.opentelemetry.io/otel/semconv/v1.7.0"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const MessageChannelBufferSize = 100
@@ -444,12 +451,26 @@ func (s *synerexServerInfo) Confirm(c context.Context, tg *api.Target) (r *api.R
 
 // go routine which wait demand channel and sending demands to each providers.
 func demandServerFunc(ch chan *api.Demand, stream api.Synerex_SubscribeDemandServer, id sxutil.IDType, chnum uint32) error {
+	tracer := otel.Tracer("demandServer", trace.WithInstrumentationVersion("sxserver:0.0.1"))
 	for dm := range ch { // block until receiving info
+		// we need to add span info! here!
+		ctx := context.Background() // need to make more precise ctx
+
+		attrs := []attribute.KeyValue{semconv.RPCSystemKey.String("grpc")}
+
+		var span trace.Span
+		ctx, span = tracer.Start(ctx, "sendDemand:"+dm.DemandName,
+			trace.WithSpanKind(trace.SpanKindServer),
+			trace.WithAttributes(attrs...),
+		)
+		log.Printf("server! demand %v %#v", ctx, span)
+
 		err := stream.Send(dm)
 		if err != nil {
 			log.Printf("Error in DemandServer Error %v", err)
 			return err
 		}
+		span.End()
 	}
 	log.Printf("SubscribeDemand for Client node %v Channel %d is closed.", id, chnum)
 	return nil
@@ -499,6 +520,7 @@ func (s *synerexServerInfo) SubscribeDemand(ch *api.Channel, stream api.Synerex_
 	s.demandChans[tp] = append(s.demandChans[tp], subCh)
 	s.demandMap[tp][idt] = subCh // mapping from clientID to channel
 	s.dmu.Unlock()
+
 	demandServerFunc(subCh, stream, idt, tp) // infinite go routine?
 	// if this returns, stream might be closed.
 	// we should remove channel
@@ -1103,6 +1125,15 @@ func main() {
 	go sxutil.HandleSigInt()
 	sxutil.RegisterDeferFunction(sxutil.UnRegisterNode)
 
+	// initialize tracer
+	tp := sxutil.NewOltpTracer()
+	defer func() {
+		log.Printf("Closing oltp traceer")
+		if err := tp.Shutdown(context.Background()); err != nil {
+			log.Printf("Can't shoutdown tracer %v", err)
+		}
+	}()
+
 	srvaddr := fmt.Sprintf("%s:%d", *servaddr, *port)
 	//	fmt.Printf("ServerInfo %s\n", srvaddr)
 	sxo := &sxutil.SxServerOpt{
@@ -1141,7 +1172,11 @@ func main() {
 
 	s := newServerInfo()
 	sinfo = s
-	opts = append(opts, grpc.UnaryInterceptor(unaryServerInterceptor(log.New(os.Stdout, "[Unary]", log.LstdFlags|log.LUTC), s)))
+	//opts = append(opts, grpc.UnaryInterceptor(unaryServerInterceptor(log.New(os.Stdout, "[Unary]", log.LstdFlags|log.LUTC), s)))
+
+	// adds tracer for unary and stream..
+	opts = append(opts, grpc.UnaryInterceptor(otelgrpc.UnaryServerInterceptor()))
+	opts = append(opts, grpc.StreamInterceptor(otelgrpc.StreamServerInterceptor()))
 
 	// for more precise monitoring , we do not use StreamIntercepter.
 	//	opts = append(opts, grpc.StreamInterceptor(streamServerInterceptor(logger)))
