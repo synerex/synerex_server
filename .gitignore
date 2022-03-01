@@ -17,4 +17,6 @@
 # mac metadata
 .DS_Store
 
+setvar.bat
+
 synerex-server
