@@ -54,7 +54,7 @@ func (mst *MessageStore) init() {
 func (mst *MessageStore) AddMessage(msgType string, chType int, mid uint64, src uint64, dst uint64, arg string) {
 
 	mes := message{msgType, chType, mid, src, dst, arg}
-	//	fmt.Printf("AddMessage %v\n",mes)
+	log.Printf("AddMessage %v\n", mes)
 	//	fmt.Printf("ls.store %v %d \n",ls.store, mid)
 	mst.mutex.Lock()
 	if mst.limit[mst.limit_pt] != 0 { // ring buffer, delete last one.

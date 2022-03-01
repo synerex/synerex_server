@@ -22,9 +22,17 @@ import (
 	pbase "github.com/synerex/synerex_proto"
 	sxutil "github.com/synerex/synerex_sxutil"
 
+	grpc_codes "google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/peer"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
+
 	"github.com/rcrowley/go-metrics"
 
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"go.opentelemetry.io/otel/baggage"
+	"go.opentelemetry.io/otel/codes"
 
 	"google.golang.org/grpc"
 
@@ -288,7 +296,7 @@ func (s *synerexServerInfo) SelectSupply(c context.Context, tg *api.Target) (r *
 		if len(s.gatewayMap) == 0 {
 			r = &api.ConfirmResponse{Ok: false, Err: "Can't find demand target from SelectSupply"}
 			log.Printf("Can't find SelectSupply target ID %d, src %d", tg.GetTargetId(), targetSender)
-			e = errors.New("Cant find channel in SelectSupply")
+			e = errors.New("Can't find channel in SelectSupply")
 			return
 		} else {
 			// TODO: implement select for gateway!
@@ -346,7 +354,8 @@ func (s *synerexServerInfo) SelectSupply(c context.Context, tg *api.Target) (r *
 }
 
 func (s *synerexServerInfo) SelectModifiedSupply(c context.Context, sp *api.Supply) (r *api.ConfirmResponse, e error) {
-	targetSender := s.messageStore.getSrcId(sp.GetTargetId()) // find source from Id
+	targetSender := s.messageStore.getSrcId(sp.GetId()) // find source from Id
+	log.Printf("SMS: TgtSender %v %#v", targetSender, sp)
 	ctype := sp.GetChannelType()
 	if ctype == 0 || ctype >= pbase.ChannelTypeMax {
 		log.Printf("ChannelType Error! %d", ctype)
@@ -361,8 +370,8 @@ func (s *synerexServerInfo) SelectModifiedSupply(c context.Context, sp *api.Supp
 		//TODO: there might be packet through gateway...
 		if len(s.gatewayMap) == 0 {
 			r = &api.ConfirmResponse{Ok: false, Err: "Can't find demand target from SelectSupply"}
-			log.Printf("Can't find SelectSupply target ID %d, src %d", sp.GetTargetId(), targetSender)
-			e = errors.New("Cant find channel in SelectSupply")
+			log.Printf("Can't find SelectModifiedSupply target ID %d, src %d", sp.GetTargetId(), targetSender)
+			e = errors.New("Can't find channel in SelectModifiedSupply")
 			return
 		} else {
 			// TODO: implement select for gateway!
@@ -379,8 +388,8 @@ func (s *synerexServerInfo) SelectModifiedSupply(c context.Context, sp *api.Supp
 		DemandName:  sp.SupplyName,
 		Ts:          sp.Ts,
 		ArgJson:     sp.ArgJson,
-		MbusId:      id, // mbus id is a message id for select.
-		Cdata:       sp.Cdata,
+		MbusId:      id,       // mbus id is a message id for select.
+		Cdata:       sp.Cdata, // modified data
 	}
 	//
 	//	args := idToNode(tg.SenderId) + "->" + idToNode(tg.TargetId)
@@ -413,14 +422,14 @@ func (s *synerexServerInfo) SelectModifiedSupply(c context.Context, sp *api.Supp
 			}
 		}
 
-	case <-time.After(30 * time.Second): // timeout! // todo: reconsider expiration time.
+	case <-time.After(2 * time.Second): // timeout! // todo: reconsider expiration time.
 		//		args := idToNode(tg.SenderId) + "->" + idToNode(tg.TargetId)
 		//		go monitorapi.SendMessage("notConfirm", int(tg.Type), dm.Id, tg.SenderId, tg.TargetId, tg.TargetId, args)
 		r = &api.ConfirmResponse{Ok: false, Err: "waitConfirm Timeout!"}
 
 	}
 
-	return r, errors.New("Should not happen")
+	return r, errors.New("may timeout")
 
 }
 
@@ -956,6 +965,100 @@ func idToNode(id uint64) string {
 	return rs2 + ":" + strconv.Itoa(nodeNum)
 }
 
+// spanInfo returns a span name and all appropriate attributes from the gRPC
+// method and peer address.
+func spanInfo(fullMethod, peerAddress string) (string, []attribute.KeyValue) {
+	RPCSystemGRPC := semconv.RPCSystemKey.String("grpc")
+	attrs := []attribute.KeyValue{RPCSystemGRPC}
+	name, mAttrs := ParseFullMethod(fullMethod)
+	attrs = append(attrs, mAttrs...)
+	attrs = append(attrs, peerAttr(peerAddress)...)
+	return name, attrs
+}
+
+func ParseFullMethod(fullMethod string) (string, []attribute.KeyValue) {
+	name := strings.TrimLeft(fullMethod, "/")
+	parts := strings.SplitN(name, "/", 2)
+	if len(parts) != 2 {
+		// Invalid format, does not follow `/package.service/method`.
+		return name, []attribute.KeyValue(nil)
+	}
+
+	var attrs []attribute.KeyValue
+	if service := parts[0]; service != "" {
+		attrs = append(attrs, semconv.RPCServiceKey.String(service))
+	}
+	if method := parts[1]; method != "" {
+		attrs = append(attrs, semconv.RPCMethodKey.String(method))
+	}
+	return name, attrs
+}
+
+// peerAttr returns attributes about the peer address.
+func peerAttr(addr string) []attribute.KeyValue {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return []attribute.KeyValue(nil)
+	}
+
+	if host == "" {
+		host = "127.0.0.1"
+	}
+
+	return []attribute.KeyValue{
+		semconv.NetPeerIPKey.String(host),
+		semconv.NetPeerPortKey.String(port),
+	}
+}
+
+func peerFromCtx(ctx context.Context) string {
+	p, ok := peer.FromContext(ctx)
+	if !ok {
+		return ""
+	}
+	return p.Addr.String()
+}
+
+type messageType attribute.KeyValue
+
+const (
+	RPCMessageTypeKey = attribute.Key("message.type")
+
+	// Identifier of message transmitted or received.
+	RPCMessageIDKey = attribute.Key("message.id")
+
+	RPCMessageUncompressedSizeKey = attribute.Key("message.uncompressed_size")
+
+	GRPCStatusCodeKey = attribute.Key("rpc.grpc.status_code")
+)
+
+var (
+	RPCMessageTypeSent     = RPCMessageTypeKey.String("SENT")
+	RPCMessageTypeReceived = RPCMessageTypeKey.String("RECEIVED")
+	messageSent            = messageType(RPCMessageTypeSent)
+	messageReceived        = messageType(RPCMessageTypeReceived)
+)
+
+func (m messageType) Event(ctx context.Context, id int, message interface{}) {
+	span := trace.SpanFromContext(ctx)
+	if p, ok := message.(proto.Message); ok {
+		span.AddEvent("message", trace.WithAttributes(
+			attribute.KeyValue(m),
+			RPCMessageIDKey.Int(id),
+			RPCMessageUncompressedSizeKey.Int(proto.Size(p)),
+		))
+	} else {
+		span.AddEvent("message", trace.WithAttributes(
+			attribute.KeyValue(m),
+			RPCMessageIDKey.Int(id),
+		))
+	}
+}
+
+func statusCodeAttr(c grpc_codes.Code) attribute.KeyValue {
+	return GRPCStatusCodeKey.Int64(int64(c))
+}
+
 func unaryServerInterceptor(logger *log.Logger, s *synerexServerInfo) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		var err error
@@ -999,6 +1102,14 @@ func unaryServerInterceptor(logger *log.Logger, s *synerexServerInfo) grpc.Unary
 			tgtId = msg.TargetId
 			args = idToNode(msg.SenderId) + "->" + idToNode(msg.TargetId)
 
+		case "SelectModifiedSupply":
+			sp := req.(*api.Supply)
+			msgType = int(sp.ChannelType)
+			srcId = sp.SenderId // may not this!
+			tgtId = sp.TargetId // may not this!
+			mid = sp.Id
+			//			args = "Type:" + strconv.Itoa(int(sp.Type)) + ":" + strconv.FormatUint(sp.Id, 16) + ":" + idToNode(sp.SenderId) + "->" + strconv.FormatUint(sp.TargetId, 16)
+			args = idToNode(sp.TargetId) + "->" + idToNode(sp.SenderId)
 		}
 
 		//		monitorapi.SendMes(&monitorapi.Mes{Message:method+":"+args, Args:""})
@@ -1036,15 +1147,43 @@ func unaryServerInterceptor(logger *log.Logger, s *synerexServerInfo) grpc.Unary
 			*/
 		}(time.Now())
 
-		// handler = RPC method
-		reply, hErr := handler(ctx, req)
-		if hErr != nil {
-			err = hErr
+		// for OTEL
+
+		requestMetadata, _ := metadata.FromIncomingContext(ctx)
+		metadataCopy := requestMetadata.Copy()
+
+		bags, spanCtx := otelgrpc.Extract(ctx, &metadataCopy)
+		ctx = baggage.ContextWithBaggage(ctx, bags)
+
+		tracer := otel.Tracer(
+			"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc",
+			trace.WithInstrumentationVersion(otelgrpc.SemVersion()),
+		)
+
+		name, attr := spanInfo(info.FullMethod, peerFromCtx(ctx))
+		ctx, span := tracer.Start(
+			trace.ContextWithRemoteSpanContext(ctx, spanCtx),
+			name,
+			trace.WithSpanKind(trace.SpanKindServer),
+			trace.WithAttributes(attr...),
+		)
+		defer span.End()
+
+		messageReceived.Event(ctx, 1, req)
+
+		resp, err := handler(ctx, req)
+		if err != nil {
+			s, _ := status.FromError(err)
+			span.SetStatus(codes.Error, s.Message())
+			span.SetAttributes(statusCodeAttr(s.Code()))
+			messageSent.Event(ctx, 1, s.Proto())
+		} else {
+			span.SetAttributes(statusCodeAttr(grpc_codes.OK))
+			messageSent.Event(ctx, 1, resp)
 		}
 
 		sxutil.MsgCountUp()
-
-		return reply, err
+		return resp, err
 	}
 }
 
@@ -1172,10 +1311,11 @@ func main() {
 
 	s := newServerInfo()
 	sinfo = s
-	//opts = append(opts, grpc.UnaryInterceptor(unaryServerInterceptor(log.New(os.Stdout, "[Unary]", log.LstdFlags|log.LUTC), s)))
+	// msg store
+	opts = append(opts, grpc.UnaryInterceptor(unaryServerInterceptor(log.New(os.Stdout, "[Unary]", log.LstdFlags|log.LUTC), s)))
 
 	// adds tracer for unary and stream..
-	opts = append(opts, grpc.UnaryInterceptor(otelgrpc.UnaryServerInterceptor()))
+	//	opts = append(opts, grpc.UnaryInterceptor(otelgrpc.UnaryServerInterceptor()))
 	opts = append(opts, grpc.StreamInterceptor(otelgrpc.StreamServerInterceptor()))
 
 	// for more precise monitoring , we do not use StreamIntercepter.

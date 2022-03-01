@@ -5,6 +5,7 @@ go 1.16
 require (
 	github.com/StackExchange/wmi v1.2.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20201227073835-cf1acfcdf475
 	github.com/shirou/gopsutil/v3 v3.21.11 // indirect
 	github.com/synerex/synerex_api v0.5.1
@@ -18,6 +19,7 @@ require (
 	go.opentelemetry.io/otel/sdk v1.3.0
 	go.opentelemetry.io/otel/trace v1.3.0
 	google.golang.org/grpc v1.42.0
+	google.golang.org/protobuf v1.27.1 // indirect
 )
 
 replace github.com/synerex/synerex_sxutil => ../synerex_sxutil
