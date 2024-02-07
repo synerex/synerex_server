@@ -100,6 +100,8 @@ github.com/synerex/synerex_nodeapi v0.5.6 h1:1y50IIZGMpGtSKitUcbYQgtNYLO1xoCRzQt
 github.com/synerex/synerex_nodeapi v0.5.6/go.mod h1:27o2ajDrx20Soz6Xzlj0WxCuHswhRXiaJGfhpwsMaz0=
 github.com/synerex/synerex_proto v0.1.12 h1:AAHL5O7gQ49VkdKLcAL97jrmzI/RmAHDnUCZJ+jBkxo=
 github.com/synerex/synerex_proto v0.1.12/go.mod h1:lUHzAQw4NAT6YAULnyoTD/MRf7UiV84wcY2m7szJ4Mg=
+github.com/synerex/synerex_proto v0.1.14 h1:8aoVwQUgC3ejqYZyjjSqUrIYnMJAsPBOSNkMfq/pGo8=
+github.com/synerex/synerex_proto v0.1.14/go.mod h1:lUHzAQw4NAT6YAULnyoTD/MRf7UiV84wcY2m7szJ4Mg=
 github.com/synerex/synerex_sxutil v0.6.6 h1:dNtkVZiDnDgBwzvBO4IOjUcf8XBjEjXzTcJNJ+UATTo=
 github.com/synerex/synerex_sxutil v0.6.6/go.mod h1:kQvozbWeyxAYtUga+ptnD+tfylOJRFjUgQgqaMD5YxA=
 github.com/synerex/synerex_sxutil v0.6.7 h1:Y8agNw2NU8A7EUOUeM/ilCAdklAsS7MtveyBbt2PS5M=
