@@ -418,11 +418,77 @@ func (s *synerexServerInfo) SelectModifiedSupply(c context.Context, sp *api.Supp
 }
 
 func (s *synerexServerInfo) SelectDemand(c context.Context, tg *api.Target) (r *api.ConfirmResponse, e error) {
-	// select!
-	// TODO: not yet implemented...
+	targetSender := s.messageStore.getSrcId(tg.GetTargetId()) // find source from Id
+	ctype := tg.GetChannelType()
+	if ctype == 0 || ctype >= pbase.ChannelTypeMax {
+		log.Printf("ChannelType Error! %d", ctype)
+		r = &api.ConfirmResponse{Ok: false, Err: "ChannelType Error"}
+		return r, errors.New("ChannelType Error")
+	}
+	s.dmu.RLock()
+	// find subscribe supply with sender
+	ch, ok := s.supplyMap[ctype][sxutil.IDType(targetSender)]
+	s.dmu.RUnlock()
+	if !ok {
+		//TODO: there might be packet through gateway...
+		if len(s.gatewayMap) == 0 {
+			r = &api.ConfirmResponse{Ok: false, Err: "Can't find supply target from SelectDemand"}
+			log.Printf("Can't find SelectDemand target ID %d, src %d", tg.GetTargetId(), targetSender)
+			e = errors.New("Cant find channel in SelectDemand")
+			return
+		} else {
+			// TODO: implement select for gateway!
+			return
+		}
+	}
+	id := sxutil.GenerateIntID()
+	sp := &api.Supply{
+		Id:          id, // generate ID from synerex server
+		SenderId:    tg.SenderId,
+		TargetId:    tg.TargetId,
+		ChannelType: tg.ChannelType,
+		MbusId:      id, // mbus id is a message id for select.
+	}
+	//
+	//	args := idToNode(tg.SenderId) + "->" + idToNode(tg.TargetId)
+	//	go monitorapi.SendMessage("ServSelDemand", int(tg.Type), dm.Id, tg.SenderId, tg.TargetId, tg.TargetId, args)
 
-	r = &api.ConfirmResponse{Ok: true, Err: ""}
-	return r, nil
+	tch := make(chan *api.Target)
+	s.wmu.Lock()
+	s.waitConfirms[tg.ChannelType][sxutil.IDType(id)] = tch
+	log.Printf("waitConfirms: %+v", s.waitConfirms)
+	s.wmu.Unlock()
+
+	ch <- sp // send select message
+
+	// wait for confim...
+	select {
+
+	case tb := <-tch: // got confirm!
+		s.wmu.Lock() // remove waitChannel
+		delete(s.waitConfirms[tg.ChannelType], sxutil.IDType(id))
+		s.wmu.Unlock()
+		//		args := idToNode(tg.SenderId) + "->" + idToNode(tg.TargetId)
+		//		go monitorapi.SendMessage("gotConfirm", int(tg.Type), dm.Id, tb.SenderId, tb.TargetId, tb.TargetId, args)
+
+		if tb.TargetId == id {
+			if tb.MbusId == id {
+				r = &api.ConfirmResponse{Ok: true, Err: "", MbusId: id}
+				return r, nil
+			} else {
+				r = &api.ConfirmResponse{Ok: true, Err: "no mbus id"}
+				return r, nil
+			}
+		}
+
+	case <-time.After(30 * time.Second): // timeout! // todo: reconsider expiration time.
+		//		args := idToNode(tg.SenderId) + "->" + idToNode(tg.TargetId)
+		//		go monitorapi.SendMessage("notConfirm", int(tg.Type), dm.Id, tg.SenderId, tg.TargetId, tg.TargetId, args)
+		r = &api.ConfirmResponse{Ok: false, Err: "waitConfirm Timeout!"}
+
+	}
+
+	return r, errors.New("Should not happen")
 }
 
 func (s *synerexServerInfo) Confirm(c context.Context, tg *api.Target) (r *api.Response, e error) {
@@ -488,7 +554,7 @@ func (s *synerexServerInfo) SubscribeDemand(ch *api.Channel, stream api.Synerex_
 		return fmt.Errorf("duplicated SubscribeDemand ClientID %d", idt)
 	}
 
-	log.Printf("Subscribe Demand Type:%d, From: %x %s", ch.ChannelType, ch.ClientId, ch.ArgJson)
+	log.Printf("Subscribe Demand Channel:%d, Node:%d Args: %s", ch.ChannelType, ch.ClientId, ch.ArgJson)
 	// It is better to logging here.
 	//	monitorapi.SendMes(&monitorapi.Mes{Message:"Subscribe Demand", Args: fmt.Sprintf("Type:%d,From: %x  %s",ch.Type,ch.ClientId, ch.ArgJson )})
 	//	monitorapi.SendMessage("SubscribeDemand", int(ch.Type), 0, ch.ClientId, 0, 0, ch.ArgJson)
@@ -589,7 +655,6 @@ func (s *synerexServerInfo) CloseDemandChannel(ctx context.Context, ch *api.Chan
 	return resp, nil
 }
 
-//
 func (s *synerexServerInfo) CloseSupplyChannel(ctx context.Context, ch *api.Channel) (resp *api.Response, err error) {
 	idt := sxutil.IDType(ch.GetClientId())
 	tp := ch.GetChannelType()
